@@ -1,0 +1,1 @@
+from jobspy.jobright.scraper import JobRight

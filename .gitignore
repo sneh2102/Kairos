@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.env
+*.db
+outputs/
+config.json
+projects.txt
+resume.txt
+

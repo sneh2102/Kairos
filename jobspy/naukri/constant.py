@@ -1,0 +1,17 @@
+headers = {
+    "authority": "www.naukri.com",
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.9",
+    "appid": "109",
+    "systemid": "109",
+    "content-type": "application/json",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "referer": "https://www.naukri.com/",
+    "origin": "https://www.naukri.com",
+    "sec-ch-ua": '"Chromium";v="122", "Google Chrome";v="122", "Not(A:Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+}

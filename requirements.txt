@@ -1,0 +1,19 @@
+langgraph>=0.2.0
+ollama>=0.6.2
+requests>=2.33.0
+reportlab>=4.5.0
+python-dotenv>=1.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# deps of the vendored ./jobspy scraper (not the PyPI package — this repo
+# ships its own fork with jobright/wellfound site support)
+pandas>=2.0.0
+numpy>=1.26.0
+pydantic>=2.0.0
+beautifulsoup4>=4.14.0
+markdownify>=0.13.0
+regex>=2024.0.0
+tls-client>=1.0.1
+playwright>=1.59.0
+urllib3>=2.0.0
