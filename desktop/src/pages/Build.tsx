@@ -51,7 +51,7 @@ export default function Build() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-gray-100">Build</h1>
+          <h1 className="text-lg font-semibold text-fg">Build</h1>
           <p className="text-sm text-muted">
             Skills / Experience / Project Writers → ATS Checker, looping until it passes. Builds every
             "yes" job that doesn't have a resume yet — change a verdict in Scraped Jobs to include/exclude one.
@@ -64,7 +64,7 @@ export default function Build() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
         <div className="card p-4 flex flex-col gap-3 h-fit">
-          <div className="text-sm text-gray-300">
+          <div className="text-sm text-fg-soft">
             {pendingCount ?? "…"} unbuilt "yes" job{pendingCount === 1 ? "" : "s"} waiting
           </div>
           {config && (
@@ -95,6 +95,59 @@ export default function Build() {
                   }
                 />
               </Field>
+              <label className="flex items-center gap-2 text-sm text-fg-soft">
+                <input
+                  type="checkbox"
+                  checked={config.pipeline.use_jd_location}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      pipeline: { ...config.pipeline, use_jd_location: e.target.checked },
+                    })
+                  }
+                />
+                Use JD location
+              </label>
+              <Field label="Default location">
+                <input
+                  className="input"
+                  value={config.pipeline.default_location}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      pipeline: { ...config.pipeline, default_location: e.target.value },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Save resumes to">
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    readOnly
+                    placeholder="Documents/Job-Hunter/Resumes (default)"
+                    value={config.pipeline.output_dir}
+                    title={config.pipeline.output_dir || undefined}
+                  />
+                  <button
+                    className="btn-secondary shrink-0"
+                    onClick={async () => {
+                      const dir = await window.desktop?.pickFolder();
+                      if (dir) setConfig({ ...config, pipeline: { ...config.pipeline, output_dir: dir } });
+                    }}
+                  >
+                    Browse…
+                  </button>
+                  {config.pipeline.output_dir && (
+                    <button
+                      className="btn-secondary shrink-0"
+                      onClick={() => setConfig({ ...config, pipeline: { ...config.pipeline, output_dir: "" } })}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </Field>
               <button className="btn-secondary" onClick={saveThresholds}>
                 Save
               </button>
@@ -120,7 +173,7 @@ export default function Build() {
               <div key={key} className="card p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-semibold text-gray-100 text-sm">{p.title}</div>
+                    <div className="font-semibold text-fg text-sm">{p.title}</div>
                     <div className="text-xs text-muted">
                       {p.company} · job {p.job_index + 1}/{p.total}
                     </div>
@@ -132,7 +185,7 @@ export default function Build() {
                 </div>
                 {typeof p.score === "number" && (
                   <div className="mt-2">
-                    <div className="h-1.5 rounded-full bg-[#0d1117] overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-track overflow-hidden">
                       <div
                         className={`h-full ${passed ? "bg-pass" : "bg-maybe"}`}
                         style={{ width: `${Math.min(100, p.score)}%` }}

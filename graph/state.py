@@ -29,5 +29,7 @@ class ApplyState(TypedDict):
     best_score: int
     no_improve: int
     _sections_to_rewrite: list[str]        # scratch: set by check_ats, read by its own router
+    _best_sections: dict                   # snapshot of the highest-scoring version so far —
+                                           # save_output keeps this if a rebuild made things worse
 
     results: Annotated[list[dict], operator.add]

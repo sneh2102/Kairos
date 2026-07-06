@@ -31,7 +31,7 @@ export default function ScreenerConfig() {
     <div className="flex flex-col gap-4 max-w-3xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-gray-100">Screener Configuration</h1>
+          <h1 className="text-lg font-semibold text-fg">Screener Configuration</h1>
           <p className="text-sm text-muted">
             Rules the Screener Agent uses to rate every scraped job yes / maybe / no.
           </p>
@@ -54,7 +54,7 @@ export default function ScreenerConfig() {
         <span className="label">Accepted role levels</span>
         <div className="flex gap-4">
           {["junior", "mid", "senior"].map((level) => (
-            <label key={level} className="flex items-center gap-2 text-sm text-gray-300">
+            <label key={level} className="flex items-center gap-2 text-sm text-fg-soft">
               <input
                 type="checkbox"
                 checked={s.accept_role_levels.includes(level)}
@@ -78,11 +78,11 @@ export default function ScreenerConfig() {
       <LabeledTextarea label="Accept keywords" value={s.accept_keywords} onChange={(v) => set({ accept_keywords: v })} rows={2} />
 
       <div className="flex gap-6">
-        <label className="flex items-center gap-2 text-sm text-gray-300">
+        <label className="flex items-center gap-2 text-sm text-fg-soft">
           <input type="checkbox" checked={s.skip_applied} onChange={(e) => set({ skip_applied: e.target.checked })} />
           Skip jobs already applied to
         </label>
-        <label className="flex items-center gap-2 text-sm text-gray-300">
+        <label className="flex items-center gap-2 text-sm text-fg-soft">
           <input type="checkbox" checked={s.fuzzy_dedup} onChange={(e) => set({ fuzzy_dedup: e.target.checked })} />
           Fuzzy dedup across sites
         </label>
@@ -92,7 +92,7 @@ export default function ScreenerConfig() {
         <span className="label">Blacklisted companies</span>
         <div className="flex flex-wrap gap-1.5 mb-2">
           {s.blacklisted_companies.map((c) => (
-            <span key={c} className="text-xs px-2 py-1 rounded-full bg-[#21262d] border border-border flex items-center gap-1.5">
+            <span key={c} className="text-xs px-2 py-1 rounded-full bg-subtle border border-border flex items-center gap-1.5">
               {c}
               <button
                 className="text-no"

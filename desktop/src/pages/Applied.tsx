@@ -33,7 +33,7 @@ export default function Applied() {
     <div className="flex flex-col gap-4 h-full">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-gray-100">Applied</h1>
+          <h1 className="text-lg font-semibold text-fg">Applied</h1>
           <p className="text-sm text-muted">{rows.length} applications on file.</p>
         </div>
         <button className="btn-secondary" onClick={load}>
@@ -58,7 +58,7 @@ export default function Applied() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-gray-100 text-sm">{row.title}</div>
+                  <div className="font-semibold text-fg text-sm">{row.title}</div>
                   <div className="text-xs text-muted">
                     {row.company} · {row.location} · {row.applied_date}
                   </div>
@@ -100,7 +100,7 @@ export default function Applied() {
               </div>
               <div className="flex-1 p-2">
                 {tab === "details" ? (
-                  <div className="p-3 text-sm text-gray-300 space-y-2 overflow-y-auto h-full">
+                  <div className="p-3 text-sm text-fg-soft space-y-2 overflow-y-auto h-full">
                     <div><span className="text-muted">Years required:</span> {selected.years_required || "—"}</div>
                     <div><span className="text-muted">Role level:</span> {selected.role_level || "—"}</div>
                     <div><span className="text-muted">Skills match:</span> {selected.skills_match_pct || "—"}%</div>
@@ -114,7 +114,7 @@ export default function Applied() {
                     )}
                     <div className="pt-2">
                       <div className="text-muted mb-1">Job description</div>
-                      <p className="whitespace-pre-wrap text-gray-400">{selected.description || "—"}</p>
+                      <p className="whitespace-pre-wrap text-muted">{selected.description || "—"}</p>
                     </div>
                   </div>
                 ) : (
@@ -141,7 +141,7 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
     <button
       onClick={onClick}
       className={`px-4 py-2 text-sm border-b-2 -mb-px ${
-        active ? "border-accent text-gray-100" : "border-transparent text-muted hover:text-gray-300"
+        active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg-soft"
       }`}
     >
       {label}

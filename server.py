@@ -7,6 +7,7 @@ import asyncio
 import logging
 import threading
 import time
+import uuid
 from datetime import date, datetime
 from pathlib import Path
 
@@ -15,13 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 import config
-from agents import github_importer, prompt_registry
+from agents import github_importer, prompt_registry, screener
 from config import CONFIG
 from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
 from graph.scrape_graph import build_scrape_graph
 from llm.client import RotatingOllamaClient
-from tools import latex
+from tools import latex, templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -108,13 +109,42 @@ def put_config(new_cfg: dict = Body(...)):
 @app.get("/api/resume-data")
 def get_resume_data():
     pcfg = CONFIG["pipeline"]
+
+    def safe_load(path: str) -> str:
+        try:
+            return config.load_text_file(path)
+        except FileNotFoundError:
+            return ""
+
     return {
-        "resume_text": config.load_text_file(pcfg["resume_path"]),
-        "projects_text": config.load_text_file(pcfg["projects_path"]),
+        "resume_text": safe_load(pcfg["resume_path"]),
+        "projects_text": safe_load(pcfg["projects_path"]),
         "experience_roles": CONFIG["experience_roles"],
         "custom_sections": CONFIG.get("custom_sections", []),
         "section_order": CONFIG.get("section_order", []),
     }
+
+
+@app.get("/api/ollama-key")
+def get_ollama_key_status():
+    return {"is_set": config.has_ollama_key()}
+
+
+@app.put("/api/ollama-key")
+def put_ollama_key(payload: dict = Body(...)):
+    config.save_ollama_key(payload["api_key"])
+    return {"saved": True}
+
+
+@app.get("/api/ollama-keys")
+def get_ollama_keys():
+    return {"keys": config.get_ollama_keys()}
+
+
+@app.put("/api/ollama-keys")
+def put_ollama_keys(payload: dict = Body(...)):
+    config.save_ollama_keys(payload["keys"])
+    return {"saved": True}
 
 
 @app.put("/api/resume-data")
@@ -165,6 +195,70 @@ def reset_prompt(key: str):
     return {"text": prompt_registry.REGISTRY[key]["default"]}
 
 
+# ---- resume templates (formats) ---------------------------------------------
+
+@app.get("/api/templates")
+def get_templates():
+    return templates.list_templates()
+
+
+@app.get("/api/templates/{template_id}")
+def get_template(template_id: str):
+    content = templates.get_content(template_id)
+    if content is None:
+        raise HTTPException(404, "template not found")
+    return {"id": template_id, "content": content}
+
+
+@app.post("/api/templates")
+def add_template(payload: dict = Body(...)):
+    try:
+        tid = templates.save_template(payload.get("name", ""), payload.get("content", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"id": tid}
+
+
+@app.put("/api/templates/{template_id}")
+def update_template(template_id: str, payload: dict = Body(...)):
+    if templates.get_content(template_id) is None or template_id == "classic":
+        raise HTTPException(404 if template_id != "classic" else 400,
+                            "template not found" if template_id != "classic" else "built-in template is read-only")
+    try:
+        templates.save_template(template_id, payload.get("content", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"saved": True}
+
+
+@app.delete("/api/templates/{template_id}")
+def remove_template(template_id: str):
+    try:
+        templates.delete_template(template_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/templates/{template_id}/activate")
+def activate_template(template_id: str):
+    try:
+        templates.set_active(template_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"active": template_id}
+
+
+@app.get("/api/templates/{template_id}/preview.pdf")
+def template_preview(template_id: str):
+    if templates.get_content(template_id) is None:
+        raise HTTPException(404, "template not found")
+    pdf, error = templates.build_preview(template_id)
+    if pdf is None:
+        raise HTTPException(422, error or "preview compile failed — check the template's LaTeX")
+    return FileResponse(pdf, media_type="application/pdf")
+
+
 # ---- GitHub project importer ------------------------------------------------
 
 @app.get("/api/github/repos")
@@ -209,6 +303,42 @@ def get_job(job_id: int):
     return job
 
 
+@app.post("/api/jobs/manual")
+def add_manual_job(payload: dict = Body(...)):
+    """Adds a job posting you found yourself (not scraped) and runs it through
+    the same Screener Agent + prompt as the automated scrape."""
+    title = payload.get("title", "").strip()
+    company = payload.get("company", "").strip()
+    description = payload.get("description", "").strip()
+    if not title or not company or not description:
+        raise HTTPException(400, "title, company, and description are required")
+
+    job = {
+        "title": title,
+        "company": company,
+        "job_url": payload.get("job_url", "").strip() or f"manual-{uuid.uuid4()}",
+        "location": payload.get("location", "").strip(),
+        "site": "manual",
+        "description": description,
+        "date_posted": date.today().isoformat(),
+    }
+
+    resume_text = config.load_text_file(CONFIG["pipeline"]["resume_path"])
+    client = RotatingOllamaClient(
+        config.collect_ollama_keys(), CONFIG["model"]["scraping"],
+        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
+        temperature=CONFIG["model"]["temperature"],
+    )
+    try:
+        verdict = screener.screen_job(client, job, CONFIG, resume_text)
+    except Exception as e:
+        raise HTTPException(502, f"Screening failed: {e}")
+
+    row = screener.verdict_to_job_row(job, verdict)
+    jobs_db.upsert(row)
+    return jobs_db.get_by_link(job["job_url"])
+
+
 @app.put("/api/jobs/{job_id}/verdict")
 def put_verdict(job_id: int, payload: dict = Body(...)):
     verdict = payload.get("verdict", "")
@@ -222,6 +352,21 @@ def put_verdict(job_id: int, payload: dict = Body(...)):
 def delete_job(job_id: int):
     jobs_db.delete_by_id(job_id)
     return {"ok": True}
+
+
+@app.post("/api/jobs/remove-no")
+def remove_no_jobs():
+    return {"removed": jobs_db.delete_by_verdict("no")}
+
+
+@app.post("/api/jobs/remove-not-applied")
+def remove_not_applied_jobs():
+    return {"removed": jobs_db.delete_not_applied()}
+
+
+@app.post("/api/jobs/remove-all")
+def remove_all_jobs():
+    return {"removed": jobs_db.delete_all()}
 
 
 @app.post("/api/jobs/{job_id}/apply")
@@ -372,6 +517,7 @@ def _run_scrape():
             logging.exception("Scrape run failed")
             broadcaster.emit({"type": "log", "level": "ERROR", "message": str(e)})
             broadcaster.emit({"type": "done", "stage": "scrape"})
+            return
 
     t = threading.Thread(target=work, daemon=True)
     RUNNERS["scrape"]["thread"] = t
@@ -405,7 +551,7 @@ def _run_apply(jobs: list[dict]):
                 "jobs": jobs, "job_index": 0, "current_job": {}, "cover_letter": "",
                 "sections": {}, "ats_score": 0, "ats_feedback": {}, "ats_iteration": 0,
                 "ats_passed": False, "best_score": 0, "no_improve": 0,
-                "_sections_to_rewrite": [], "results": [],
+                "_sections_to_rewrite": [], "_best_sections": {}, "results": [],
             }
             graph.invoke(initial_state, {"recursion_limit": 200})
         except Exception as e:

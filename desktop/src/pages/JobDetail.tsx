@@ -54,7 +54,7 @@ export default function JobDetail() {
     setBusy("apply");
     try {
       await api.applyJob(jobId);
-      navigate("/applied");
+      navigate(-1);
     } catch (e) {
       setError(String(e));
       setBusy(null);
@@ -63,7 +63,7 @@ export default function JobDetail() {
 
   async function remove() {
     await api.deleteJob(jobId);
-    navigate("/scraped-jobs");
+    navigate(-1);
   }
 
   const hasResume = !!job.latex_content;
@@ -71,13 +71,13 @@ export default function JobDetail() {
 
   return (
     <div className="flex flex-col gap-4 max-w-4xl">
-      <button className="text-sm text-accent hover:underline w-fit" onClick={() => navigate("/scraped-jobs")}>
+      <button className="text-sm text-accent hover:underline w-fit" onClick={() => navigate(-1)}>
         ← Back to Scraped Jobs
       </button>
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-100">{job.title}</h1>
+          <h1 className="text-xl font-semibold text-fg">{job.title}</h1>
           <div className="text-sm text-muted">
             {job.company} · {job.location} · {job.site} · posted {job.posted_date || "unknown"}
           </div>
@@ -100,8 +100,8 @@ export default function JobDetail() {
       </div>
 
       <div className="card p-4">
-        <div className="text-sm font-medium text-gray-200 mb-2">Screener reasoning</div>
-        <p className="text-sm text-gray-400">{job.reasoning || "—"}</p>
+        <div className="text-sm font-medium text-fg mb-2">Screener reasoning</div>
+        <p className="text-sm text-muted">{job.reasoning || "—"}</p>
         <div className="flex flex-wrap gap-1.5 mt-3">
           {(job.matched_skills || "").split(",").filter(Boolean).map((s) => (
             <span key={s} className="text-[11px] px-2 py-0.5 rounded bg-yes/10 text-yes border border-yes/30">
@@ -117,12 +117,12 @@ export default function JobDetail() {
       </div>
 
       <div className="card p-4">
-        <div className="text-sm font-medium text-gray-200 mb-2">Job description</div>
-        <p className="text-sm text-gray-400 whitespace-pre-wrap max-h-64 overflow-y-auto">{job.description}</p>
+        <div className="text-sm font-medium text-fg mb-2">Job description</div>
+        <p className="text-sm text-muted whitespace-pre-wrap max-h-64 overflow-y-auto">{job.description}</p>
       </div>
 
       <div className="card p-4 flex flex-col gap-3">
-        <div className="text-sm font-medium text-gray-200">Actions</div>
+        <div className="text-sm font-medium text-fg">Actions</div>
 
         <div>
           <span className="label">Change verdict</span>
@@ -165,7 +165,7 @@ export default function JobDetail() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-base font-semibold text-gray-100">{value}</div>
+      <div className="text-base font-semibold text-fg">{value}</div>
       <div className="text-xs text-muted">{label}</div>
     </div>
   );

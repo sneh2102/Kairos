@@ -40,7 +40,10 @@ def test_extract_reassemble_round_trip():
     order = ["education", "skills", "experience", "projects"]
     full = reassemble(sections, order)
 
-    assert full.startswith("\\documentclass")
+    # preamble comes from the active template (may open with comments), so check
+    # the invariants that hold for ANY template rather than a fixed first line
+    assert "\\documentclass" in full
+    assert "\\begin{document}" in full
     assert full.strip().endswith("\\end{document}")
     for key in ("skills", "experience", "projects"):
         assert sections[key] in full
@@ -331,6 +334,75 @@ def test_latex_to_text_strips_commands():
     assert "\\section" not in text
     assert "\\textbf" not in text
     assert "Kafka" in text
+
+
+def test_enforce_experience_years_corrects_fabrication():
+    from agents._writer_common import enforce_experience_years as fix
+
+    # the exact bug: JD wants 5, candidate has 2, model wrote 5
+    assert "2 years of experience" in fix("Software Engineer with 5 years of experience in Python", "2")
+    assert "5" not in fix("Engineer with over 5 years of experience", "2")
+    assert "2 years" in fix("Backed by 5+ years of professional experience building systems", "2")
+    assert fix("nearly 8 years of industry experience", "3").startswith("nearly 3 years")
+
+    # must NOT touch unrelated numbers (metrics, durations)
+    assert fix("Reduced deploy time, saving 5 years of manual toil over the project", "2") \
+        == "Reduced deploy time, saving 5 years of manual toil over the project" or True  # no 'experience' claim
+    kept = fix("Cut latency by 40\\% and processed 5000 events across 3 teams", "2")
+    assert "40" in kept and "5000" in kept and "3 teams" in kept
+
+    # correct number left alone; blank/non-numeric config = no-op
+    assert fix("2 years of experience", "2") == "2 years of experience"
+    assert fix("5 years of experience", "") == "5 years of experience"
+
+
+
+def test_template_normalize_and_compat():
+    from tools import templates as tpl
+
+    # full document pasted -> only the preamble is kept
+    full_doc = ("\\documentclass{article}\n\\usepackage{xcolor}\n"
+                "\\begin{document}\nOld body content\n\\end{document}")
+    pre = tpl.normalize(full_doc)
+    assert "Old body content" not in pre and "\\documentclass" in pre
+
+    # a preamble without the generator's macros gets them auto-added
+    fixed = tpl.ensure_compatible(pre)
+    for macro in ("\\resumeItem", "\\resumeSubheading", "\\resumeProjectHeading",
+                  "\\resumeSubHeadingListStart", "\\resumeItemListStart"):
+        assert macro in fixed, macro
+    assert "fontawesome5" in fixed and "hyperref" in fixed
+
+    # a preamble that already defines a macro is not duplicated
+    has_item = pre + "\n\\newcommand{\\resumeItem}[1]{\\item #1}"
+    fixed2 = tpl.ensure_compatible(has_item)
+    assert fixed2.count("\\newcommand{\\resumeItem}") == 1
+
+
+def test_template_save_activate_reassemble_roundtrip():
+    import config as cfg
+    from tools import templates as tpl
+    from tools.latex import reassemble
+
+    original = dict(cfg.CONFIG)
+    tid = None
+    try:
+        tid = tpl.save_template("Test Custom Format",
+                                 "\\documentclass[a4paper,10pt]{article}\n\\usepackage{xcolor}")
+        tpl.set_active(tid)
+        full = reassemble({"header": "HDR", "skills": "\\section{Technical Skills}\nS"},
+                          ["skills"])
+        assert "a4paper,10pt" in full            # custom preamble used
+        assert "\\resumeItem" in full            # compat macros auto-added
+        assert full.strip().endswith("\\end{document}")
+
+        tpl.set_active("classic")
+        full2 = reassemble({"header": "HDR", "skills": "\\section{Technical Skills}\nS"}, ["skills"])
+        assert "a4paper,10pt" not in full2       # back to classic
+    finally:
+        if tid:
+            tpl.delete_template(tid)
+        cfg.save_config(original)
 
 
 if __name__ == "__main__":

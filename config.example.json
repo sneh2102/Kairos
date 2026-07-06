@@ -1,0 +1,88 @@
+{
+  "onboarded": false,
+  "scraper": {
+    "sites": "indeed,glassdoor,linkedin,zip_recruiter,jobright",
+    "location": "",
+    "country_indeed": "",
+    "hours_old": 24,
+    "results_wanted": 100,
+    "is_remote": false,
+    "search_terms": "Developer"
+  },
+  "model": {
+    "scraping": "gemma4:31b-cloud",
+    "pipeline": "gemma4:31b-cloud",
+    "num_predict": 32384,
+    "num_ctx": 64768,
+    "temperature": 1
+  },
+  "github": {
+    "token": ""
+  },
+  "pipeline": {
+    "max_ats_iterations": 5,
+    "ats_pass_threshold": 85,
+    "max_no_improve": 2,
+    "output_dir": "",
+    "resume_path": "resume.txt",
+    "projects_path": "projects.txt",
+    "resume_filename": "Resume",
+    "cover_letter_filename": "Cover_Letter",
+    "use_jd_location": true,
+    "default_location": "",
+    "latex_template": "classic"
+  },
+  "section_order": [
+    "summary",
+    "skills",
+    "experience",
+    "projects",
+    "education"
+  ],
+  "custom_sections": [
+    {
+      "id": "summary",
+      "name": "Summary",
+      "system_prompt": "You are an expert resume writer. Output ONLY raw LaTeX — no backticks, no explanation. Generate ONLY the Summary section body.\n\nOUTPUT FORMAT CONTRACT:\n\\section{Summary}\n  \\resumeSubHeadingListStart\n    \\resumeItem{<concise professional summary paragraph, 2-3 sentences, ~50-90 words>}\n  \\resumeSubHeadingListEnd\n\nWriting rules:\n- Open with professional identity and years of experience.\n- State core domain/specialization.\n- Highlight 2-3 hard-skill areas mirroring the JOB DESCRIPTION keywords.\n- Include 1 quantified achievement if the resume provides numbers.\n- End with a forward-looking value-prop statement.\n- Third person, no first-person pronouns, no cliche openers.\n- Do not fabricate information not supported by the CANDIDATE RESUME.\n\nABSOLUTE RULES:\n- NO \\documentclass, NO \\usepackage, NO \\begin{document}, NO \\end{document}.\n- NO markdown fences, NO commentary.",
+      "user_prompt": "Write the Summary section for {full_name} applying for {title} at {company}.\n\nJOB DESCRIPTION:\n{description}\n\nCANDIDATE RESUME:\n{existing_resume}\n\nATS FEEDBACK:\n{ats_feedback}\n\nReturn ONLY the LaTeX Summary block."
+    }
+  ],
+  "prompts": {
+    "job_screener": "You are a ruthless but contextually aware IT job screener.\nYour job is to evaluate whether the candidate should apply to this position.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nCANDIDATE PROFILE\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{candidate_profile}\n\nSTRONG FIT FOR:\n- Software Developer / Engineer (any stack)\n- Full Stack Developer\n- Backend / Frontend Developer\n- Data Engineer / Analyst\n- Cloud / DevOps Engineer\n- AI / ML Engineer\n- IT Support / Systems Analyst\n- Junior to Mid-level roles (0-5 years required)\n\nNOT A FIT FOR:\n- Consulting / Recruitment / Staffing companies — immediate NO\n- Pure Manual QA / Testing (no coding)\n- Hardware / Embedded / FPGA Engineering\n- Marketing, Sales, HR, Finance, Non-technical\n- Roles requiring specific certifications they don't have (PMP, CPA, etc.)\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nINPUTS\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nJOB TITLE: {title}\nJOB DESCRIPTION: {description}\nRESUME SUMMARY: {resume_text}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nEVALUATION STEPS\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nSTEP 1 — DOMAIN CHECK\nAccept if role is in: Software Dev, Data Eng, Cloud, DevOps, AI/ML, IT Support, Cybersecurity.\nReject immediately (verdict=no) if: Marketing, HR, Sales, Manual QA, Hardware, non-technical.\n\nSTEP 2 — EXPERIENCE CHECK\nExtract required years from JD (\"X+ years\", \"minimum X\", \"X-Y years experience\").\n0-4 yrs → PASS | 5 yrs → BORDERLINE | 6+ yrs → FAIL | Not mentioned → NEUTRAL\nLIBERAL RULE: If candidate has equivalent project/academic experience, give benefit of doubt.\n\nSTEP 3 — SKILLS MATCH (BE LIBERAL WITH EQUIVALENTS)\nList every technical skill/tool/framework in the JD.\nCount each as matched if candidate has it OR a clear equivalent:\n  PostgreSQL ≈ MySQL ≈ SQL | AWS ≈ GCP ≈ Azure | React ≈ Vue ≈ Angular\n  Docker ≈ containerization | Kubernetes ≈ container orchestration\nscore = matched / total_jd_skills * 100\n70%+ = Strong | 45-69% = Partial | <45% = Weak\n\nSTEP 4 — SENIORITY CALIBRATION\nJunior/Entry/Associate/New Grad → BONUS (raise verdict one level if borderline)\nMid/Intermediate/no label → NEUTRAL\nSenior/Lead/Staff/Principal/Manager → PENALTY (lower verdict one level)\n\nSTEP 5 — FINAL VERDICT\nPASS + Strong + Any → yes\nPASS + Partial + Junior/Mid → yes\nPASS + Partial + Senior → maybe\nPASS + Weak + Junior → maybe\nPASS + Weak + Mid/Senior → no\nBORDERLINE + Strong + Junior/Mid → maybe\nBORDERLINE + anything else → no\nFAIL + anything → no\n\nIf number of years of experience is not given, infer a reasonable number from the JD yourself — do not write \"unspecified\".\nAlso extract the key technical keywords from the Job Description.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nOUTPUT — return ONLY valid JSON, no markdown, no backticks\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{\"verdict\": \"yes or maybe or no\", \"years_required\": \"number or range\", \"role_level\": \"junior or mid or senior\", \"skills_match_pct\": 75, \"matched_skills\": [\"Python\", \"React\"], \"missing_skills\": [\"Go\", \"Terraform\"], \"reasoning\": \"Strong match on full-stack skills. Missing Terraform but compensated by Docker/K8s experience.\"}"
+  },
+  "profile": {
+    "full_name": "",
+    "phone": "",
+    "email": "",
+    "linkedin": "",
+    "github": "",
+    "location": "",
+    "experience_yrs": "",
+    "core_stack": "",
+    "job_titles": "",
+    "not_fit_for": "",
+    "education": [],
+    "include_links": true
+  },
+  "experience_roles": [],
+  "screener": {
+    "max_years_exp": 5,
+    "yes_match_pct": 70,
+    "maybe_match_pct": 45,
+    "accept_role_levels": [
+      "junior",
+      "mid"
+    ],
+    "required_skills": "",
+    "preferred_skills": "",
+    "reject_keywords": "",
+    "accept_keywords": "",
+    "blacklisted_companies": [],
+    "skip_applied": true,
+    "fuzzy_dedup": true
+  },
+  "scheduler": {
+    "enabled": false,
+    "time": "08:00"
+  }
+}

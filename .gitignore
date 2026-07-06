@@ -7,4 +7,16 @@ outputs/
 config.json
 projects.txt
 resume.txt
+templates/
+previews/
 
+# PyInstaller freeze + bundled Chromium/Tectonic — built artifacts, not source
+/build_backend/
+/dist_backend/
+/desktop/release/
+
+build
+dist/
+Job-scraper-LangGraph
+ziprecruiter_debug.png
+desktop/build-resources/*

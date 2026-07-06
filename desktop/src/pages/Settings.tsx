@@ -3,11 +3,11 @@ import type { Dispatch, SetStateAction } from "react";
 import { api } from "../lib/api";
 import type { Config } from "../lib/types";
 
-type Tab = "profile" | "model" | "prompts" | "scheduler";
+type Tab = "model" | "api-keys" | "prompts" | "scheduler";
 
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null);
-  const [tab, setTab] = useState<Tab>("profile");
+  const [tab, setTab] = useState<Tab>("model");
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
@@ -32,8 +32,11 @@ export default function Settings() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-gray-100">Settings</h1>
-          <p className="text-sm text-muted">Profile, model, prompts, and the daily scrape schedule. Screener rules live on their own page.</p>
+          <h1 className="text-lg font-semibold text-fg">Settings</h1>
+          <p className="text-sm text-muted">
+            Model, prompts, and the daily scrape schedule. Profile lives on the Resume & profile page; screener
+            rules live on their own page.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {savedAt && <span className="text-xs text-muted">Saved</span>}
@@ -44,13 +47,13 @@ export default function Settings() {
       </div>
 
       <div className="flex border-b border-border">
-        {(["profile", "model", "prompts", "scheduler"] as Tab[]).map((t) => (
-          <TabButton key={t} active={tab === t} onClick={() => setTab(t)} label={t} />
+        {(["model", "api-keys", "prompts", "scheduler"] as Tab[]).map((t) => (
+          <TabButton key={t} active={tab === t} onClick={() => setTab(t)} label={t === "api-keys" ? "API keys" : t} />
         ))}
       </div>
 
-      {tab === "profile" && <ProfileTab config={config} setConfig={setConfig} />}
       {tab === "model" && <ModelTab config={config} setConfig={setConfig} />}
+      {tab === "api-keys" && <ApiKeysTab />}
       {tab === "prompts" && <PromptsTab config={config} setConfig={setConfig} />}
       {tab === "scheduler" && <SchedulerTab config={config} setConfig={setConfig} />}
     </div>
@@ -58,35 +61,6 @@ export default function Settings() {
 }
 
 type Setter = Dispatch<SetStateAction<Config | null>>;
-
-function ProfileTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
-  const p = config.profile;
-  const set = (patch: Partial<Config["profile"]>) => setConfig({ ...config, profile: { ...p, ...patch } });
-  return (
-    <div className="grid grid-cols-2 gap-3 max-w-3xl">
-      <LabeledInput label="Full name" value={p.full_name} onChange={(v) => set({ full_name: v })} />
-      <LabeledInput label="Phone" value={p.phone} onChange={(v) => set({ phone: v })} />
-      <LabeledInput label="Email" value={p.email} onChange={(v) => set({ email: v })} />
-      <LabeledInput label="LinkedIn" value={p.linkedin} onChange={(v) => set({ linkedin: v })} />
-      <LabeledInput label="GitHub" value={p.github} onChange={(v) => set({ github: v })} />
-      <LabeledInput label="Location" value={p.location} onChange={(v) => set({ location: v })} />
-      <LabeledInput label="Years of experience" value={p.experience_yrs} onChange={(v) => set({ experience_yrs: v })} />
-      <label className="flex items-center gap-2 text-sm text-gray-300 mt-5">
-        <input type="checkbox" checked={p.include_links} onChange={(e) => set({ include_links: e.target.checked })} />
-        Show LinkedIn/GitHub links on resume
-      </label>
-      <div className="col-span-2">
-        <LabeledTextarea label="Core stack" value={p.core_stack} onChange={(v) => set({ core_stack: v })} rows={2} />
-      </div>
-      <div className="col-span-2">
-        <LabeledTextarea label="Target job titles" value={p.job_titles} onChange={(v) => set({ job_titles: v })} rows={2} />
-      </div>
-      <div className="col-span-2">
-        <LabeledTextarea label="Not a fit for" value={p.not_fit_for} onChange={(v) => set({ not_fit_for: v })} rows={2} />
-      </div>
-    </div>
-  );
-}
 
 function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
   const m = config.model;
@@ -99,7 +73,7 @@ function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) 
       <LabeledNumber label="Temperature (x100)" value={Math.round(m.temperature * 100)} onChange={(v) => set({ temperature: v / 100 })} />
       <LabeledNumber label="Context window" value={m.num_ctx} onChange={(v) => set({ num_ctx: v })} />
       <p className="col-span-2 text-xs text-muted">
-        Ollama API keys live in <code>.env</code> (OLLAMA_API_KEY_1, _2, …) — not editable here for safety.
+        Ollama API keys live on the <strong className="text-fg-soft">API keys</strong> tab.
       </p>
       <div className="col-span-2">
         <LabeledInput
@@ -108,6 +82,73 @@ function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) 
           onChange={(v) => setConfig({ ...config, github: { token: v } })}
         />
       </div>
+    </div>
+  );
+}
+
+function ApiKeysTab() {
+  const [keys, setKeys] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getOllamaKeys().then((r) => setKeys(r.keys)).finally(() => setLoading(false));
+  }, []);
+
+  function update(i: number, value: string) {
+    setKeys((prev) => prev.map((k, idx) => (idx === i ? value : k)));
+  }
+
+  function remove(i: number) {
+    setKeys((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const cleaned = keys.map((k) => k.trim()).filter(Boolean);
+      await api.putOllamaKeys(cleaned);
+      setKeys(cleaned);
+      setSavedAt(Date.now());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="text-sm text-muted">Loading…</div>;
+
+  return (
+    <div className="flex flex-col gap-3 max-w-2xl">
+      <p className="text-xs text-muted">
+        Ollama API keys, tried in order — when one hits its rate limit the pipeline rotates to the next. Saved
+        straight to <code>.env</code> as OLLAMA_API_KEY_1, _2, …
+      </p>
+      {keys.length === 0 && (
+        <div className="text-sm text-muted">No keys yet — add at least one to run the scraper or build resumes.</div>
+      )}
+      {keys.map((k, i) => (
+        <div key={i} className="flex gap-2">
+          <input className="input flex-1" value={k} onChange={(e) => update(i, e.target.value)} placeholder={`Key ${i + 1}`} />
+          <button className="btn-ghost px-2 py-1 text-bad hover:text-bad" onClick={() => remove(i)}>
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center gap-3">
+        <button className="btn-secondary w-fit" onClick={() => setKeys((prev) => [...prev, ""])}>
+          + Add key
+        </button>
+        <button className="btn-primary w-fit" onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save keys"}
+        </button>
+        {savedAt && <span className="text-xs text-muted">Saved</span>}
+      </div>
+      {error && <div className="text-sm text-no">{error}</div>}
     </div>
   );
 }
@@ -136,12 +177,11 @@ function SchedulerTab({ config, setConfig }: { config: Config; setConfig: Setter
     setConfig({ ...config, scheduler: { ...sched, ...patch } });
   return (
     <div className="flex flex-col gap-4 max-w-md">
-      <label className="flex items-center gap-2 text-sm text-gray-300">
+      <label className="flex items-center gap-2 text-sm text-fg-soft">
         <input type="checkbox" checked={sched.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
         Automatically run the scraper every day
       </label>
       <LabeledInput label="Time (24h, local)" value={sched.time} onChange={(v) => set({ time: v })} />
-      <p className="text-xs text-muted">Checked every 30s while the app is running.</p>
     </div>
   );
 }
@@ -151,7 +191,7 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
     <button
       onClick={onClick}
       className={`px-4 py-2 text-sm border-b-2 -mb-px capitalize ${
-        active ? "border-accent text-gray-100" : "border-transparent text-muted hover:text-gray-300"
+        active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg-soft"
       }`}
     >
       {label}
@@ -177,21 +217,3 @@ function LabeledNumber({ label, value, onChange }: { label: string; value: numbe
   );
 }
 
-function LabeledTextarea({
-  label,
-  value,
-  onChange,
-  rows = 3,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  rows?: number;
-}) {
-  return (
-    <div>
-      <span className="label">{label}</span>
-      <textarea className="input resize-none" rows={rows} value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
-  );
-}

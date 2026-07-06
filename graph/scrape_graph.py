@@ -31,7 +31,7 @@ def build_scrape_graph(emit: Callable[[dict], None] | None = None,
 
     def job_scraper_node(state: ScrapeState) -> dict:
         emit({"type": "status", "stage": "scrape", "state": "scraping"})
-        jobs = scrape_new_jobs(CONFIG, jobs_db, applied_db)
+        jobs = scrape_new_jobs(CONFIG, jobs_db, applied_db, emit=emit)
         logging.info("Job Scraper Agent: %d new candidate jobs", len(jobs))
         emit({"type": "log", "level": "INFO", "message": f"Found {len(jobs)} new candidate jobs"})
         return {"jobs": jobs}
@@ -51,6 +51,8 @@ def build_scrape_graph(emit: Callable[[dict], None] | None = None,
                 jobs_db.upsert(row)
             except Exception as e:
                 logging.warning("Screener failed for %s @ %s: %s", job.get("title"), job.get("company"), e)
+                emit({"type": "log", "level": "ERROR",
+                      "message": f"Screener failed for {job.get('title')} @ {job.get('company')}: {e}"})
                 continue
             screened.append(row)
             logging.info("[%s] %s @ %s (%s%%)", verdict["verdict"].upper(),

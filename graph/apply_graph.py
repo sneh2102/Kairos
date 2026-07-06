@@ -81,6 +81,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
             try:
                 sections[sid] = custom_section_writer.write(
                     client, section_cfg, profile.get("full_name", ""), title, company, description, existing_resume,
+                    experience_yrs=profile.get("experience_yrs", ""),
                 )
             except Exception as e:
                 logging.warning("Custom section %s failed for %s @ %s: %s", sid, title, company, e)
@@ -102,7 +103,9 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
             "ats_passed": False,
             "best_score": 0,
             "no_improve": 0,
+            "_best_sections": {},
         }
+
 
     def route_after_next_job(state: ApplyState):
         if state["job_index"] >= len(state["jobs"]):
@@ -168,6 +171,14 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
         best_score = max(score, state["best_score"])
         no_improve = 0 if score > state["best_score"] else state["no_improve"] + 1
 
+        # snapshot the highest-scoring HONEST version — if a later rebuild makes
+        # things worse, save_output falls back to this instead of the last draft
+        prev_best = state.get("_best_sections") or {}
+        if score >= prev_best.get("score", -1):
+            best_sections = {"score": score, "sections": dict(state["sections"])}
+        else:
+            best_sections = prev_best
+
         # surface the FULL breakdown in the Logs tab so it's clear WHY the score
         # is what it is (which category leaked, which keywords are still missing)
         bd = result.get("breakdown", {})
@@ -200,10 +211,11 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
             "ats_score": score,
             "ats_feedback": feedback,
             "ats_iteration": state["ats_iteration"] + 1,
-            "ats_passed": result["pass"] or score >= pass_threshold,
+            "ats_passed": (result["pass"] or score >= pass_threshold),
             "best_score": best_score,
             "no_improve": no_improve,
             "_sections_to_rewrite": result["sections_to_rewrite"],
+            "_best_sections": best_sections,
         }
 
     def route_after_check_ats(state: ApplyState):
@@ -217,7 +229,18 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     def save_output(state: ApplyState) -> dict:
         job = state["current_job"]
         title, company = job.get("title", ""), job.get("company", "")
-        full_latex = latex.reassemble(state["sections"], section_order)
+
+        # the right decision, made autonomously: save the highest-scoring HONEST
+        # version, not simply the last draft (a final rebuild can score worse)
+        sections_to_save = state["sections"]
+        final_score = state["ats_score"]
+        best = state.get("_best_sections") or {}
+        if best.get("sections") and best.get("score", -1) > final_score:
+            emit({"type": "log", "level": "INFO",
+                  "message": f"  keeping best version (score {best['score']}) over final draft (score {final_score})"})
+            sections_to_save = best["sections"]
+            final_score = best["score"]
+        full_latex = latex.reassemble(sections_to_save, section_order)
 
         resume_pdf = latex.build_output_path(output_dir, company, title, pcfg["resume_filename"], "pdf")
         compiled = latex.compile_latex_to_pdf(full_latex, resume_pdf)
@@ -228,19 +251,19 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
         job_id = job.get("id")
         if job_id is not None:
             jobs_db.save_build_artifacts(
-                job_id, full_latex, state["cover_letter"], state["ats_score"], str(resume_pdf), str(cover_pdf),
+                job_id, full_latex, state["cover_letter"], final_score, str(resume_pdf), str(cover_pdf),
             )
 
-        logging.info("Built resume for %s @ %s — ATS score %d (%s)", title, company, state["ats_score"],
+        logging.info("Built resume for %s @ %s — ATS score %d (%s)", title, company, final_score,
                      "compiled" if compiled else "tex only")
         emit({"type": "apply_progress", "company": company, "title": title, "stage": "done",
               "job_index": state["job_index"], "total": len(state["jobs"]),
-              "score": state["ats_score"], "status": "done" if compiled else "tex_only",
+              "score": final_score, "status": "done" if compiled else "tex_only",
               "resume_path": str(resume_pdf), "cover_path": str(cover_pdf), "job_id": job_id})
         time.sleep(1)
         return {
             "job_index": state["job_index"] + 1,
-            "results": [{"company": company, "title": title, "score": state["ats_score"],
+            "results": [{"company": company, "title": title, "score": final_score,
                           "status": "done" if compiled else "tex_only"}],
         }
 
@@ -263,7 +286,6 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     g.add_edge("save_output", "next_job")
 
     return g.compile()
-
 
 def load_buildable_jobs(verdicts: tuple[str, ...] = ("yes",)) -> list[dict]:
     return JobsDB().get_buildable(verdicts)

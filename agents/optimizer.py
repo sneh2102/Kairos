@@ -19,6 +19,8 @@ import logging
 import re
 
 from agents import ats_rules
+from agents._writer_common import enforce_experience_years
+from config import CONFIG
 from llm.client import RotatingOllamaClient
 
 logger = logging.getLogger(__name__)
@@ -303,12 +305,14 @@ def optimize_sections(client: RotatingOllamaClient, sections: dict[str, str],
     keywords = ats_rules.extract_jd_keywords(description)
     _, missing = ats_rules.match_keywords(keywords, full_text)
 
-    # AI-tell/filler cleanup applies to EVERY section (header, education, custom,
-    # skills, ...), because "proven track record" etc. often live in a summary
-    # line outside the three writer sections.
+    # AI-tell/filler cleanup + experience-year honesty applies to EVERY section
+    # (header, education, custom summary, skills, ...), because "proven track
+    # record" and fabricated "N years of experience" often live in a summary line
+    # outside the three writer sections.
+    real_years = CONFIG.get("profile", {}).get("experience_yrs", "")
     for name, body in sections.items():
         if body and body.strip():
-            out[name] = fix_ai_tells(body)
+            out[name] = enforce_experience_years(fix_ai_tells(body), real_years)
 
     skills = out.get("skills", sections.get("skills", ""))
     if skills.strip():

@@ -114,6 +114,7 @@ def build_custom_rules(screener_cfg: dict) -> str:
     pref_sk = [s.strip() for s in screener_cfg.get("preferred_skills", "").split(",") if s.strip()]
     reject_kw = [s.strip() for s in screener_cfg.get("reject_keywords", "").split(",") if s.strip()]
     accept_kw = [s.strip() for s in screener_cfg.get("accept_keywords", "").split(",") if s.strip()]
+    blacklisted_companies = screener_cfg.get("blacklisted_companies", [])
 
     parts = [
         "\n\n-----------------------------------------------------",
@@ -135,6 +136,8 @@ def build_custom_rules(screener_cfg: dict) -> str:
         parts.append(f"- Auto-REJECT immediately if title or JD contains: {', '.join(reject_kw)}.")
     if accept_kw:
         parts.append(f"- Boost verdict to YES if job title contains: {', '.join(accept_kw)}.")
+    if blacklisted_companies:
+        parts.append(f"- Auto-REJECT immediately if company name matches (case-insensitive): {', '.join(blacklisted_companies)}.")
     return "\n".join(parts)
 
 

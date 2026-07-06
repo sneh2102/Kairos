@@ -6,6 +6,8 @@ source of truth here.
 import sqlite3
 from pathlib import Path
 
+import config
+
 JOBS_COLS = [
     "ai_recommendation", "company", "title", "link", "location", "site",
     "years_required", "role_level", "skills_match_pct", "matched_skills",
@@ -44,8 +46,12 @@ def _migrate(con: sqlite3.Connection, table: str, columns: dict[str, str]):
 
 
 class JobsDB:
-    def __init__(self, path: str = "jobs.db"):
-        self.path = path
+    def __init__(self, path: str | None = None):
+        # every caller (server.py, scrape_graph.py, apply_graph.py, main.py)
+        # must land on the SAME file — a bare relative default here previously
+        # resolved against the process's cwd, which differs from DATA_DIR in
+        # the packaged app, silently splitting scraped jobs across two DBs
+        self.path = path or str(config.DATA_DIR / "jobs.db")
         self._init_schema()
 
     def _connect(self):
@@ -121,6 +127,24 @@ class JobsDB:
         with self._connect() as con:
             con.execute("DELETE FROM jobs WHERE id=?", (job_id,))
 
+    def delete_by_verdict(self, verdict: str) -> int:
+        with self._connect() as con:
+            cur = con.execute("DELETE FROM jobs WHERE lower(ai_recommendation)=?", (verdict.lower(),))
+            return cur.rowcount
+
+    def delete_not_applied(self) -> int:
+        """Applied jobs are physically moved to applied.db (see mark_applied),
+        so every row left in jobs.db is, by construction, not applied — this
+        clears the whole pending queue while leaving applied.db untouched."""
+        with self._connect() as con:
+            cur = con.execute("DELETE FROM jobs WHERE lower(coalesce(application_status,'')) != 'applied'")
+            return cur.rowcount
+
+    def delete_all(self) -> int:
+        with self._connect() as con:
+            cur = con.execute("DELETE FROM jobs")
+            return cur.rowcount
+
     def get_all_urls(self) -> set[str]:
         with self._connect() as con:
             return {r[0] for r in con.execute("SELECT link FROM jobs")}
@@ -166,8 +190,8 @@ class JobsDB:
 
 
 class AppliedDB:
-    def __init__(self, path: str = "applied.db"):
-        self.path = path
+    def __init__(self, path: str | None = None):
+        self.path = path or str(config.DATA_DIR / "applied.db")
         self._init_schema()
 
     def _connect(self):

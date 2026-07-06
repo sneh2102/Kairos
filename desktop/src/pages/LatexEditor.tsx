@@ -53,7 +53,7 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
           <button className="text-sm text-accent hover:underline" onClick={() => navigate(-1)}>
             ← Back
           </button>
-          <h1 className="text-lg font-semibold text-gray-100 mt-1">LaTeX editor — {title}</h1>
+          <h1 className="text-lg font-semibold text-fg mt-1">LaTeX editor — {title}</h1>
         </div>
         <div className="flex items-center gap-3">
           {message && <span className={`text-xs ${message.ok ? "text-yes" : "text-no"}`}>{message.text}</span>}

@@ -1,4 +1,4 @@
-import type { AppliedRow, Config, CustomSection, ExperienceRole, GithubRepo, JobRow, PromptInfo, Stats } from "./types";
+import type { AppliedRow, Config, CustomSection, ExperienceRole, GithubRepo, JobRow, PromptInfo, Stats, TemplateInfo } from "./types";
 
 export const BACKEND_URL = "http://127.0.0.1:8756";
 
@@ -28,6 +28,14 @@ export const api = {
   getConfig: () => request<Config>("/api/config"),
   putConfig: (cfg: Config) => request("/api/config", { method: "PUT", body: JSON.stringify(cfg) }),
 
+  getOllamaKeyStatus: () => request<{ is_set: boolean }>("/api/ollama-key"),
+  setOllamaKey: (apiKey: string) =>
+    request<{ saved: boolean }>("/api/ollama-key", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+
+  getOllamaKeys: () => request<{ keys: string[] }>("/api/ollama-keys"),
+  putOllamaKeys: (keys: string[]) =>
+    request<{ saved: boolean }>("/api/ollama-keys", { method: "PUT", body: JSON.stringify({ keys }) }),
+
   getResumeData: () =>
     request<{
       resume_text: string;
@@ -51,9 +59,14 @@ export const api = {
     return request<JobRow[]>(`/api/jobs?${qs.toString()}`);
   },
   getJob: (id: number) => request<JobRow>(`/api/jobs/${id}`),
+  addManualJob: (payload: { title: string; company: string; location: string; job_url: string; description: string }) =>
+    request<JobRow>("/api/jobs/manual", { method: "POST", body: JSON.stringify(payload) }),
   setVerdict: (id: number, verdict: string) =>
     request(`/api/jobs/${id}/verdict`, { method: "PUT", body: JSON.stringify({ verdict }) }),
   deleteJob: (id: number) => request(`/api/jobs/${id}`, { method: "DELETE" }),
+  removeNoJobs: () => request<{ removed: number }>("/api/jobs/remove-no", { method: "POST" }),
+  removeNotAppliedJobs: () => request<{ removed: number }>("/api/jobs/remove-not-applied", { method: "POST" }),
+  removeAllJobs: () => request<{ removed: number }>("/api/jobs/remove-all", { method: "POST" }),
   applyJob: (id: number) => request<AppliedRow>(`/api/jobs/${id}/apply`, { method: "POST" }),
   buildJob: (id: number) => request<{ started: boolean }>(`/api/jobs/${id}/build`, { method: "POST" }),
   compileJob: (id: number, latexCode: string) =>
@@ -75,6 +88,16 @@ export const api = {
     }),
   resumePdfUrl: (id: number) => `${BACKEND_URL}/api/outputs/${id}/resume.pdf`,
   coverPdfUrl: (id: number) => `${BACKEND_URL}/api/outputs/${id}/cover.pdf`,
+
+  listTemplates: () => request<TemplateInfo[]>("/api/templates"),
+  getTemplate: (id: string) => request<{ id: string; content: string }>(`/api/templates/${id}`),
+  addTemplate: (name: string, content: string) =>
+    request<{ id: string }>("/api/templates", { method: "POST", body: JSON.stringify({ name, content }) }),
+  updateTemplate: (id: string, content: string) =>
+    request(`/api/templates/${id}`, { method: "PUT", body: JSON.stringify({ content }) }),
+  deleteTemplate: (id: string) => request(`/api/templates/${id}`, { method: "DELETE" }),
+  activateTemplate: (id: string) => request(`/api/templates/${id}/activate`, { method: "POST" }),
+  templatePreviewUrl: (id: string) => `${BACKEND_URL}/api/templates/${id}/preview.pdf`,
 
   getPrompts: () => request<Record<string, PromptInfo>>("/api/prompts"),
   savePrompt: (key: string, text: string) =>

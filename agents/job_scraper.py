@@ -35,11 +35,20 @@ def _fuzzy_dedup(rows: list[dict], threshold: float = 0.90) -> list[dict]:
     return keep
 
 
-def scrape_new_jobs(cfg: dict, jobs_db: JobsDB, applied_db: AppliedDB) -> list[dict]:
+def scrape_new_jobs(cfg: dict, jobs_db: JobsDB, applied_db: AppliedDB, emit=None) -> list[dict]:
+    emit = emit or (lambda event: None)
     scraper_cfg = cfg["scraper"]
     screener_cfg = cfg["screener"]
     sites = [s.strip() for s in scraper_cfg["sites"].split(",") if s.strip()]
     search_terms = [t.strip() for t in scraper_cfg["search_terms"].splitlines() if t.strip()]
+
+    # jobspy's Country.from_string("") raises ValueError, which aborts the
+    # WHOLE multi-site call below (not just indeed) — so a blank country
+    # here silently zeroed every site's results, not just indeed's. Omit the
+    # kwarg entirely when blank so jobspy falls back to its own default.
+    scrape_kwargs = {}
+    if scraper_cfg.get("country_indeed"):
+        scrape_kwargs["country_indeed"] = scraper_cfg["country_indeed"]
 
     seen_urls: set[str] = set()
     all_rows: list[dict] = []
@@ -51,12 +60,13 @@ def scrape_new_jobs(cfg: dict, jobs_db: JobsDB, applied_db: AppliedDB) -> list[d
                 location=scraper_cfg["location"],
                 hours_old=scraper_cfg["hours_old"],
                 results_wanted=scraper_cfg["results_wanted"],
-                country_indeed=scraper_cfg["country_indeed"],
                 is_remote=scraper_cfg["is_remote"],
                 linkedin_fetch_description=True,
+                **scrape_kwargs,
             )
         except Exception as e:
             logging.warning("Scrape failed for term %r: %s", term, e)
+            emit({"type": "log", "level": "ERROR", "message": f"Scrape failed for {term!r}: {e}"})
             continue
         if df is None or df.empty:
             continue

@@ -524,6 +524,7 @@ def analyze(description: str, latex: str) -> dict:
     }
 
 
+
 def build_feedback(analysis: dict) -> dict[str, str]:
     """Turns findings into the concrete, actionable per-section feedback the
     writer agents consume on the rebuild pass."""

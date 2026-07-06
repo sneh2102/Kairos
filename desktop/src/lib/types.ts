@@ -83,6 +83,13 @@ export interface CustomSection {
   user_prompt: string;
 }
 
+export interface TemplateInfo {
+  id: string;
+  name: string;
+  builtin: boolean;
+  active: boolean;
+}
+
 export interface PromptInfo {
   label: string;
   description: string;
@@ -103,6 +110,7 @@ export interface GithubRepo {
 }
 
 export interface Config {
+  onboarded?: boolean;
   scraper: {
     sites: string;
     location: string;
@@ -163,7 +171,7 @@ export interface Config {
     skip_applied: boolean;
     fuzzy_dedup: boolean;
   };
-  scheduler?: { enabled: boolean; time: string };
+  scheduler?: { enabled: boolean; time: string; autopilot?: boolean };
   [key: string]: unknown;
 }
 

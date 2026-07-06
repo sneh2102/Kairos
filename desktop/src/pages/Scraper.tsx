@@ -6,6 +6,20 @@ import type { Config } from "../lib/types";
 import JobCard from "../components/JobCard";
 import StatusBadge from "../components/StatusBadge";
 
+// value = what jobspy's Site enum expects (see jobspy/model.py)
+const SITES = [
+  { value: "indeed", label: "Indeed" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "glassdoor", label: "Glassdoor" },
+  { value: "zip_recruiter", label: "ZipRecruiter" },
+  { value: "google", label: "Google Jobs" },
+  { value: "bayt", label: "Bayt" },
+  { value: "naukri", label: "Naukri" },
+  { value: "bdjobs", label: "BDJobs" },
+  { value: "jobright", label: "JobRight" },
+  { value: "wellfound", label: "Wellfound" },
+];
+
 export default function Scraper() {
   const [config, setConfig] = useState<Config | null>(null);
   const [saving, setSaving] = useState(false);
@@ -50,7 +64,7 @@ export default function Scraper() {
     <div className="flex flex-col gap-6 h-full">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-gray-100">Scraper</h1>
+          <h1 className="text-lg font-semibold text-fg">Scraper</h1>
           <p className="text-sm text-muted">Job Scraper Agent + Screener Agent — finds and rates new postings.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -65,11 +79,10 @@ export default function Scraper() {
         <div className="card p-4 flex flex-col gap-3 h-fit">
           {config && (
             <>
-              <Field label="Sites (comma-separated)">
-                <input
-                  className="input"
+              <Field label="Sites">
+                <SiteSelect
                   value={config.scraper.sites}
-                  onChange={(e) => setConfig({ ...config, scraper: { ...config.scraper, sites: e.target.value } })}
+                  onChange={(sites) => setConfig({ ...config, scraper: { ...config.scraper, sites } })}
                 />
               </Field>
               <Field label="Search terms (one per line)">
@@ -86,6 +99,15 @@ export default function Scraper() {
                   className="input"
                   value={config.scraper.location}
                   onChange={(e) => setConfig({ ...config, scraper: { ...config.scraper, location: e.target.value } })}
+                />
+              </Field>
+              <Field label="Country (for Indeed — e.g. canada, usa, uk)">
+                <input
+                  className="input"
+                  value={config.scraper.country_indeed}
+                  onChange={(e) =>
+                    setConfig({ ...config, scraper: { ...config.scraper, country_indeed: e.target.value } })
+                  }
                 />
               </Field>
               <div className="grid grid-cols-2 gap-3">
@@ -113,7 +135,7 @@ export default function Scraper() {
                   />
                 </Field>
               </div>
-              <label className="flex items-center gap-2 text-sm text-gray-300">
+              <label className="flex items-center gap-2 text-sm text-fg-soft">
                 <input
                   type="checkbox"
                   checked={config.scraper.is_remote}
@@ -142,9 +164,11 @@ export default function Scraper() {
         </div>
 
         <div className="flex flex-col gap-3 min-h-0">
-          <div className="text-sm text-muted">
-            {scrapeJobs.length} processed · <span className="text-yes">✓ {yes} yes</span> ·{" "}
-            <span className="text-maybe">~ {maybe} maybe</span> · <span className="text-no">✗ {no} no</span>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-muted"><span className="num text-fg">{scrapeJobs.length}</span> processed</span>
+            <Count color="bg-good" label="yes" n={yes} />
+            <Count color="bg-warn" label="maybe" n={maybe} />
+            <Count color="bg-bad" label="no" n={no} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto pr-1" style={{ maxHeight: "55vh" }}>
             {scrapeJobs.map((j, i) => (
@@ -177,11 +201,60 @@ export default function Scraper() {
   );
 }
 
+export function SiteSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const selected = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  function toggle(site: string) {
+    const next = selected.includes(site) ? selected.filter((s) => s !== site) : [...selected, site];
+    onChange(next.join(","));
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {SITES.map((s) => {
+        const on = selected.includes(s.value);
+        return (
+          <button
+            key={s.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => toggle(s.value)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
+              on
+                ? "bg-accent border-accent text-on-accent"
+                : "bg-surface border-edge text-fg-soft hover:border-accent hover:text-fg"
+            }`}
+          >
+            {on && (
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            )}
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
       <span className="label">{label}</span>
       {children}
     </div>
+  );
+}
+
+function Count({ color, label, n }: { color: string; label: string; n: number }) {
+  return (
+    <span className="flex items-center gap-1.5 text-muted">
+      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
+      <span className="num text-fg">{n}</span> {label}
+    </span>
   );
 }

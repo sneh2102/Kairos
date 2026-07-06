@@ -17,7 +17,7 @@ export default function Prompts() {
   return (
     <div className="flex flex-col gap-4 max-w-3xl">
       <div>
-        <h1 className="text-lg font-semibold text-gray-100">Prompts</h1>
+        <h1 className="text-lg font-semibold text-fg">Prompts</h1>
         <p className="text-sm text-muted">
           Customize the instructions each AI agent uses. The required output format (LaTeX section
           rules / JSON schema) is enforced in code separately and always applies, regardless of what
@@ -30,9 +30,9 @@ export default function Prompts() {
           <div key={key} className="card p-4 flex items-center justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-100">{info.label}</span>
+                <span className="font-semibold text-fg">{info.label}</span>
                 {info.is_default && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#21262d] border border-border text-muted">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-subtle border border-border text-muted">
                     default
                   </span>
                 )}
@@ -96,8 +96,8 @@ function PromptEditor({
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6">
       <div className="card w-full max-w-3xl h-[85vh] flex flex-col p-5 gap-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-100">Editing: {info.label}</h2>
-          <button className="text-muted hover:text-gray-100 text-lg leading-none" onClick={onClose}>
+          <h2 className="font-semibold text-fg">Editing: {info.label}</h2>
+          <button className="text-muted hover:text-fg text-lg leading-none" onClick={onClose}>
             ×
           </button>
         </div>
@@ -108,9 +108,9 @@ function PromptEditor({
           </div>
         )}
 
-        <div className="text-xs text-[#d29922] bg-[#21262d] border border-border rounded-md px-3 py-2">
-          🔒 The required output format is enforced in code and always applies, no matter what you
-          write here.
+        <div className="text-xs text-warn bg-warn/10 border border-warn/25 rounded-lg px-3 py-2">
+          The required output format is enforced in code and always applies, no matter what you write
+          here — editing this can't break generation.
         </div>
 
         <textarea
@@ -119,7 +119,7 @@ function PromptEditor({
           onChange={(e) => setText(e.target.value)}
         />
 
-        {error && <div className="text-sm text-no">⚠ {error}</div>}
+        {error && <div className="text-sm text-bad">{error}</div>}
 
         <div className="flex items-center justify-between">
           <button className="btn-secondary" onClick={resetToDefault}>

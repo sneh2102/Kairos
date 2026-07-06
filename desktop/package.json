@@ -10,7 +10,40 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "electron .",
-    "start": "concurrently -k -n VITE,ELECTRON -c blue,green \"vite\" \"wait-on tcp:5173 && electron .\""
+    "start": "concurrently -k -n VITE,ELECTRON -c blue,green \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "dist:win": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.snehpatel.jobscraper",
+    "productName": "Job Scraper",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist_backend/server",
+        "to": "backend"
+      },
+      {
+        "from": "build-resources/chromium",
+        "to": "chromium"
+      },
+      {
+        "from": "build-resources/tectonic",
+        "to": "tectonic"
+      },
+      {
+        "from": "build-resources/resume-icons",
+        "to": "resume-icons"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -27,6 +60,7 @@
     "concurrently": "^9.2.3",
     "cross-env": "^7.0.3",
     "electron": "^41.7.1",
+    "electron-builder": "^24.13.3",
     "eslint": "^9.13.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",

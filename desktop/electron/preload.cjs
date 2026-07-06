@@ -5,4 +5,5 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("desktop", {
   getBackendUrl: () => ipcRenderer.invoke("backend:url"),
+  pickFolder: () => ipcRenderer.invoke("dialog:pick-folder"),
 });
