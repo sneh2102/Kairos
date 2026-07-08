@@ -1,10 +1,39 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import type { JobRow } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
 
 const FILTERS = ["all", "yes", "maybe", "no"] as const;
+
+const PROVINCES: Record<string, string> = {
+  AB: "Alberta",
+  BC: "British Columbia",
+  MB: "Manitoba",
+  NB: "New Brunswick",
+  NL: "Newfoundland and Labrador",
+  NS: "Nova Scotia",
+  NT: "Northwest Territories",
+  NU: "Nunavut",
+  ON: "Ontario",
+  PE: "Prince Edward Island",
+  QC: "Quebec",
+  SK: "Saskatchewan",
+  YT: "Yukon",
+};
+
+function provinceOf(location: string): string {
+  const loc = (location || "").toUpperCase();
+  for (const [code, name] of Object.entries(PROVINCES)) {
+    if (new RegExp(`\\b${code}\\b`).test(loc) || loc.includes(name.toUpperCase())) return code;
+  }
+  return "";
+}
+
+function yearsOf(years: string): number {
+  const m = (years || "").match(/\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : -1;
+}
 
 export default function ScrapedJobs() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -17,7 +46,37 @@ export default function ScrapedJobs() {
   const [showAdd, setShowAdd] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [site, setSite] = useState(() => searchParams.get("site") || "");
+  const [province, setProvince] = useState(() => searchParams.get("prov") || "");
+  const [resumeOnly, setResumeOnly] = useState(() => searchParams.get("resume") === "1");
+  const [sortYears, setSortYears] = useState<"" | "asc" | "desc">(
+    () => (searchParams.get("sort") as "" | "asc" | "desc") || ""
+  );
   const navigate = useNavigate();
+
+  const sites = useMemo(() => [...new Set(jobs.map((j) => j.site).filter(Boolean))].sort(), [jobs]);
+  const provinces = useMemo(
+    () => [...new Set(jobs.map((j) => provinceOf(j.location)).filter(Boolean))].sort(),
+    [jobs]
+  );
+
+  const visible = useMemo(() => {
+    const rows = jobs.filter(
+      (j) =>
+        (!site || j.site === site) &&
+        (!province || provinceOf(j.location) === province) &&
+        (!resumeOnly || !!j.latex_content)
+    );
+    if (sortYears) {
+      rows.sort((a, b) => {
+        const ya = yearsOf(a.years_required);
+        const yb = yearsOf(b.years_required);
+        if (ya < 0 || yb < 0) return (ya < 0 ? 1 : 0) - (yb < 0 ? 1 : 0); // unknowns last
+        return sortYears === "asc" ? ya - yb : yb - ya;
+      });
+    }
+    return rows;
+  }, [jobs, site, province, resumeOnly, sortYears]);
 
   async function load() {
     setLoading(true);
@@ -26,23 +85,32 @@ export default function ScrapedJobs() {
     setLoading(false);
   }
 
-  function syncParams(nextQ: string) {
-    const params: Record<string, string> = {};
-    if (filter !== "all") params.verdict = filter;
-    if (nextQ) params.q = nextQ;
-    setSearchParams(params, { replace: true });
-  }
-
   useEffect(() => {
-    syncParams(q);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   useEffect(() => {
-    syncParams(q);
+    const params: Record<string, string> = {};
+    if (filter !== "all") params.verdict = filter;
+    if (q) params.q = q;
+    if (site) params.site = site;
+    if (province) params.prov = province;
+    if (resumeOnly) params.resume = "1";
+    if (sortYears) params.sort = sortYears;
+    setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [filter, q, site, province, resumeOnly, sortYears]);
+
+  // restore scroll after coming back from a job detail page
+  useEffect(() => {
+    if (loading) return;
+    const y = sessionStorage.getItem("jobsScroll");
+    if (y) {
+      document.querySelector("main")?.scrollTo(0, Number(y));
+      sessionStorage.removeItem("jobsScroll");
+    }
+  }, [loading]);
 
   async function runCleanup(action: "no" | "not-applied" | "blacklisted" | "all", confirmText: string) {
     setCleanupOpen(false);
@@ -94,7 +162,7 @@ export default function ScrapedJobs() {
         </div>
       )}
 
-      <div className="flex gap-1.5">
+      <div className="flex gap-1.5 items-center flex-wrap">
         {FILTERS.map((f) => (
           <button
             key={f}
@@ -106,16 +174,53 @@ export default function ScrapedJobs() {
             {f}
           </button>
         ))}
+        <div className="w-px h-5 bg-border mx-1" />
+        <select className="input !w-auto !py-1.5" value={site} onChange={(e) => setSite(e.target.value)}>
+          <option value="">All job boards</option>
+          {sites.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <select className="input !w-auto !py-1.5" value={province} onChange={(e) => setProvince(e.target.value)}>
+          <option value="">All provinces</option>
+          {provinces.map((p) => (
+            <option key={p} value={p}>
+              {PROVINCES[p]}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input !w-auto !py-1.5"
+          value={sortYears}
+          onChange={(e) => setSortYears(e.target.value as typeof sortYears)}
+        >
+          <option value="">Sort: default</option>
+          <option value="asc">Years exp ↑</option>
+          <option value="desc">Years exp ↓</option>
+        </select>
+        <label className="flex items-center gap-1.5 text-sm text-fg-soft cursor-pointer px-1.5">
+          <input type="checkbox" checked={resumeOnly} onChange={(e) => setResumeOnly(e.target.checked)} />
+          Resume generated
+        </label>
       </div>
 
       {loading ? (
         <div className="text-sm text-muted">Loading…</div>
-      ) : jobs.length === 0 ? (
+      ) : visible.length === 0 ? (
         <div className="text-sm text-muted">No jobs match. Run a scrape, or add one yourself.</div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-          {jobs.map((job) => (
-            <JobTile key={job.id} job={job} onClick={() => navigate(`/jobs/${job.id}`)} />
+          {visible.map((job) => (
+            <JobTile
+              key={job.id}
+              job={job}
+              onClick={() => {
+                sessionStorage.setItem("jobsScroll", String(document.querySelector("main")?.scrollTop ?? 0));
+                navigate(`/jobs/${job.id}`);
+              }}
+            />
           ))}
         </div>
       )}
