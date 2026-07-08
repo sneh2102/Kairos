@@ -198,8 +198,26 @@ def parse_verdict(text: str) -> dict:
     return default
 
 
+def is_blacklisted(company: str, cfg: dict) -> bool:
+    """Case-insensitive substring match against screener.blacklisted_companies."""
+    blacklist = [c.strip().lower() for c in cfg["screener"].get("blacklisted_companies", []) if c and c.strip()]
+    return any(b in str(company or "").lower() for b in blacklist)
+
+
 def screen_job(client: RotatingOllamaClient, job: dict, cfg: dict, resume_text: str) -> dict:
-    """Returns a verdict dict; blacklist matches are force-overridden to 'no'."""
+    """Returns a verdict dict; blacklisted companies are hard-rejected before
+    the LLM is ever called."""
+    if is_blacklisted(job.get("company", ""), cfg):
+        return {
+            "verdict": "no",
+            "years_required": "unspecified",
+            "role_level": "unspecified",
+            "skills_match_pct": 0,
+            "matched_skills": [],
+            "missing_skills": [],
+            "reasoning": "Blacklisted company — hard reject, not screened.",
+        }
+
     prompt_template = get_prompt("job_screener", DEFAULT_JOB_SCREENER).replace(
         "{candidate_profile}", build_profile_context(cfg["profile"])
     )
@@ -214,13 +232,7 @@ def screen_job(client: RotatingOllamaClient, job: dict, cfg: dict, resume_text: 
     ) + SCHEMA_SUFFIX
 
     raw = client.complete(system=_SYSTEM, user=prompt)
-    verdict = parse_verdict(raw)
-
-    blacklist = [c.lower() for c in cfg["screener"].get("blacklisted_companies", [])]
-    if any(b in str(job.get("company", "")).lower() for b in blacklist):
-        verdict["verdict"] = "no"
-        verdict["reasoning"] = "Blacklisted company — forced no."
-    return verdict
+    return parse_verdict(raw)
 
 
 def verdict_to_job_row(job: dict, verdict: dict) -> dict:

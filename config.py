@@ -4,7 +4,7 @@ import os
 import shutil
 from pathlib import Path
 
-from dotenv import load_dotenv, set_key, unset_key
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).parent
 # Unset in source/dev mode (falls back to ROOT, today's behavior, unchanged).
@@ -30,9 +30,9 @@ with open(_CONFIG_PATH, encoding="utf-8") as f:
     CONFIG: dict = json.load(f)
 
 
-def get_ollama_keys() -> list[str]:
-    """Every OLLAMA_API_KEY_1.. in order, plus the legacy bare OLLAMA_API_KEY
-    (if set and not already in the numbered list) tacked on the end."""
+def _env_ollama_keys() -> list[str]:
+    """Legacy .env fallback: every OLLAMA_API_KEY_1.. in order, plus the bare
+    OLLAMA_API_KEY (if set and not already in the numbered list) on the end."""
     keys = []
     i = 1
     while True:
@@ -47,10 +47,16 @@ def get_ollama_keys() -> list[str]:
     return keys
 
 
+def get_ollama_keys() -> list[str]:
+    """API keys from config.json (source of truth), falling back to legacy .env
+    vars for installs that haven't been migrated/saved yet."""
+    return list(CONFIG.get("api_keys") or _env_ollama_keys())
+
+
 def collect_ollama_keys() -> list[str]:
     keys = get_ollama_keys()
     if not keys:
-        raise RuntimeError("No OLLAMA_API_KEY_1.. found in environment/.env")
+        raise RuntimeError("No API keys found in config.json (api_keys) or .env")
     return keys
 
 
@@ -59,31 +65,18 @@ def has_ollama_key() -> bool:
 
 
 def save_ollama_key(value: str):
-    """Writes OLLAMA_API_KEY to .env (creating it if needed) and updates the
-    running process's env so it's usable immediately, no restart required."""
-    _ENV_PATH.touch(exist_ok=True)
-    set_key(str(_ENV_PATH), "OLLAMA_API_KEY", value)
-    os.environ["OLLAMA_API_KEY"] = value
+    """Adds a single key to config.json's api_keys (Setup page's one-key flow)."""
+    keys = get_ollama_keys()
+    if value not in keys:
+        keys.append(value)
+    save_ollama_keys(keys)
 
 
 def save_ollama_keys(keys: list[str]):
-    """Rewrites OLLAMA_API_KEY_1.. in .env from `keys` (renumbered from 1),
-    clearing the legacy bare OLLAMA_API_KEY and any now-unused numbered slots
-    — so the rotation pool in llm/client.py picks up the new list immediately."""
-    _ENV_PATH.touch(exist_ok=True)
-    old_count = 0
-    while os.environ.get(f"OLLAMA_API_KEY_{old_count + 1}"):
-        old_count += 1
-    unset_key(str(_ENV_PATH), "OLLAMA_API_KEY")
-    os.environ.pop("OLLAMA_API_KEY", None)
-    for i in range(1, max(old_count, len(keys)) + 1):
-        env_key = f"OLLAMA_API_KEY_{i}"
-        if i <= len(keys):
-            set_key(str(_ENV_PATH), env_key, keys[i - 1])
-            os.environ[env_key] = keys[i - 1]
-        else:
-            unset_key(str(_ENV_PATH), env_key)
-            os.environ.pop(env_key, None)
+    """Persists the rotation pool to config.json's api_keys — the pool in
+    llm/client.py picks up the new list on the next run, no restart needed."""
+    CONFIG["api_keys"] = [k.strip() for k in keys if k and k.strip()]
+    save_config(CONFIG)
 
 
 def load_text_file(path: str) -> str:
@@ -112,3 +105,9 @@ def save_config(new_cfg: dict):
         json.dump(new_cfg, f, indent=2, ensure_ascii=False)
     CONFIG.clear()
     CONFIG.update(new_cfg)
+
+
+# One-time migration: copy legacy .env keys into config.json so config.json is
+# the single source of truth from here on (.env is left untouched as a backup).
+if not CONFIG.get("api_keys") and _env_ollama_keys():
+    save_ollama_keys(_env_ollama_keys())

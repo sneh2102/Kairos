@@ -10,20 +10,31 @@ NO \documentclass, NO \usepackage, NO \begin{document}, NO \end{document}.
 
 INSTRUCTIONS:
 1. Read the JD and identify its DOMAIN (e.g. frontend, data engineering, DevOps, ML) and top
-   technical requirements.
+   technical requirements. Note each keyword's EXACT spelling and casing — reuse it verbatim
+   (if the JD says "PostgreSQL", never write "Postgres").
 2. Select the 3-4 projects from the AVAILABLE PROJECTS list that best match the JD's DOMAIN and
    demonstrate those requirements — prefer projects in the same field as the JD, and frame each
    in that field's terminology. NEVER invent a project that is not in the AVAILABLE PROJECTS
    list, and never inflate its scale beyond what's written there.
-3. For unmatched JD skills, pick the closest available project and add one honest bullet
-   connecting it — do not fabricate a whole new project.
-4. Replace the literal placeholder "url" in \href{url}{...} with the actual URL parsed
+3. You MAY retitle a project so its name describes it in the JD's domain language (e.g.
+   "job-scraper" -> "Distributed Job-Market Data Pipeline") — but its tech stack, features,
+   and scale must stay exactly what the AVAILABLE PROJECTS entry says. A new name, not new
+   capabilities.
+4. For unmatched JD skills, pick the closest available project and add one honest bullet
+   connecting it (same underlying concept, transferable technique) — do not fabricate a
+   feature or a whole new project.
+5. Replace the literal placeholder "url" in \href{url}{...} with the actual URL parsed
    from that project's AVAILABLE PROJECTS entry.
-5. Each project: 2-3 bullets, each with a specific metric.
+6. Each project: 2-3 bullets. A specific metric in most bullets, but not mechanically in
+   every one — a number in every line reads as generated. Prefer believable, non-round
+   figures consistent with the project's real scale.
 
 BULLET RULES:
 - Every bullet = 1.5 lines minimum. Use \textbf{} on project name + 1-2 key technologies.
-- Use exact JD keywords naturally. All % -> \%, all & -> \&.
+- Weave exact JD keywords into natural sentences; never end a bullet with a bolted-on tool
+  list. Vary sentence openings — no two bullets start with the same verb, and BANNED verbs:
+  spearheaded, leveraged, utilized, "responsible for".
+- All % -> \%, all & -> \&. No special chars: no ->, no <>, no em dashes.
 
 OUTPUT FORMAT:
 \section{Relevant Projects}

@@ -44,10 +44,17 @@ export default function ScrapedJobs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  async function runCleanup(action: "no" | "not-applied" | "all", confirmText: string) {
+  async function runCleanup(action: "no" | "not-applied" | "blacklisted" | "all", confirmText: string) {
     setCleanupOpen(false);
     if (!confirm(confirmText)) return;
-    const fn = action === "no" ? api.removeNoJobs : action === "not-applied" ? api.removeNotAppliedJobs : api.removeAllJobs;
+    const fn =
+      action === "no"
+        ? api.removeNoJobs
+        : action === "not-applied"
+          ? api.removeNotAppliedJobs
+          : action === "blacklisted"
+            ? api.removeBlacklistedJobs
+            : api.removeAllJobs;
     const res = await fn();
     setMessage(`Removed ${res.removed} job${res.removed === 1 ? "" : "s"}.`);
     load();
@@ -159,7 +166,7 @@ function CleanupMenu({
 }: {
   open: boolean;
   setOpen: (v: boolean) => void;
-  onPick: (action: "no" | "not-applied" | "all", confirmText: string) => void;
+  onPick: (action: "no" | "not-applied" | "blacklisted" | "all", confirmText: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -186,6 +193,12 @@ function CleanupMenu({
           <MenuItem
             label="Remove not applied"
             onClick={() => onPick("not-applied", "Remove every job you haven't applied to yet? This can't be undone.")}
+          />
+          <MenuItem
+            label="Remove blacklisted companies"
+            onClick={() =>
+              onPick("blacklisted", "Remove every job from a blacklisted company? This can't be undone.")
+            }
           />
           <MenuItem
             danger

@@ -62,7 +62,7 @@ function AppShell() {
             <Route path="/templates" element={<Templates />} />
             <Route path="/prompts" element={<Prompts />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/setup" element={<Setup />} />
+            <Route path="/setup" element={<Setup onDone={() => setOnboarded(true)} />} />
             <Route path="/logs" element={<Logs />} />
           </Routes>
         )}

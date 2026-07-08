@@ -11,7 +11,10 @@ Output ONLY the \section{Technical Skills} block — nothing else.
 
 INSTRUCTIONS
 1. Read the JD carefully. Extract every distinct technical skill, tool, framework, platform, methodology mentioned.
-2. Map each JD keyword to the candidate's existing skills.
+2. Map each JD keyword to the candidate's existing skills. Use the JD's EXACT spelling and
+   casing (JD says "PostgreSQL" -> write "PostgreSQL", not "Postgres"). For key acronyms,
+   include both forms once across the section, e.g. "CI/CD (Continuous Integration/Continuous
+   Deployment)", so any ATS parser matches either.
 3. Create 5-6 categories that match JD domain terminology exactly.
 4. Front-load the most JD-relevant keywords first in each category.
 5. Include JD-specific tools even if the candidate used equivalents (show both if possible).

@@ -1,5 +1,6 @@
 {
   "onboarded": false,
+  "api_keys": [],
   "scraper": {
     "sites": "indeed,glassdoor,linkedin,zip_recruiter,jobright",
     "location": "",

@@ -8,7 +8,7 @@ import { SiteSelect } from "./Scraper";
 
 const STEPS = ["Welcome", "Profile", "Resume material", "Model & API key", "Scraper defaults", "Save location"] as const;
 
-export default function Setup() {
+export default function Setup({ onDone }: { onDone?: () => void }) {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [config, setConfig] = useState<Config | null>(null);
@@ -38,6 +38,7 @@ export default function Setup() {
         api.putResumeData({ resume_text: resumeText, projects_text: projectsText }),
         ...(ollamaKey.trim() ? [api.setOllamaKey(ollamaKey.trim())] : []),
       ]);
+      if (markOnboarded) onDone?.();
       navigate("/");
     } catch (e) {
       setError(String(e));

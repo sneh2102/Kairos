@@ -67,6 +67,7 @@ export const api = {
   removeNoJobs: () => request<{ removed: number }>("/api/jobs/remove-no", { method: "POST" }),
   removeNotAppliedJobs: () => request<{ removed: number }>("/api/jobs/remove-not-applied", { method: "POST" }),
   removeAllJobs: () => request<{ removed: number }>("/api/jobs/remove-all", { method: "POST" }),
+  removeBlacklistedJobs: () => request<{ removed: number }>("/api/jobs/remove-blacklisted", { method: "POST" }),
   applyJob: (id: number) => request<AppliedRow>(`/api/jobs/${id}/apply`, { method: "POST" }),
   buildJob: (id: number) => request<{ started: boolean }>(`/api/jobs/${id}/build`, { method: "POST" }),
   compileJob: (id: number, latexCode: string) =>

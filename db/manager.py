@@ -145,6 +145,18 @@ class JobsDB:
             cur = con.execute("DELETE FROM jobs")
             return cur.rowcount
 
+    def delete_by_companies(self, companies: list[str]) -> int:
+        """Removes every job whose company contains one of the given names —
+        case-insensitive substring, the same match rule the screener's
+        blacklist uses."""
+        terms = [c.strip().lower() for c in companies if c and c.strip()]
+        if not terms:
+            return 0
+        where = " OR ".join("instr(lower(company), ?) > 0" for _ in terms)
+        with self._connect() as con:
+            cur = con.execute(f"DELETE FROM jobs WHERE {where}", terms)
+            return cur.rowcount
+
     def get_all_urls(self) -> set[str]:
         with self._connect() as con:
             return {r[0] for r in con.execute("SELECT link FROM jobs")}

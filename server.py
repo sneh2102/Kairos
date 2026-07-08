@@ -102,6 +102,10 @@ def get_config():
 
 @app.put("/api/config")
 def put_config(new_cfg: dict = Body(...)):
+    # A client holding a config fetched before keys existed would otherwise
+    # wipe api_keys on a full-config save — always preserve them if omitted.
+    if "api_keys" not in new_cfg:
+        new_cfg["api_keys"] = CONFIG.get("api_keys", [])
     config.save_config(new_cfg)
     return {"saved": True}
 
@@ -367,6 +371,12 @@ def remove_not_applied_jobs():
 @app.post("/api/jobs/remove-all")
 def remove_all_jobs():
     return {"removed": jobs_db.delete_all()}
+
+
+@app.post("/api/jobs/remove-blacklisted")
+def remove_blacklisted_jobs():
+    companies = CONFIG["screener"].get("blacklisted_companies", [])
+    return {"removed": jobs_db.delete_by_companies(companies)}
 
 
 @app.post("/api/jobs/{job_id}/apply")

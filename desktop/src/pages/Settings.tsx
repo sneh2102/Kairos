@@ -126,7 +126,7 @@ function ApiKeysTab() {
     <div className="flex flex-col gap-3 max-w-2xl">
       <p className="text-xs text-muted">
         Ollama API keys, tried in order — when one hits its rate limit the pipeline rotates to the next. Saved
-        straight to <code>.env</code> as OLLAMA_API_KEY_1, _2, …
+        to <code>config.json</code> as <code>api_keys</code>.
       </p>
       {keys.length === 0 && (
         <div className="text-sm text-muted">No keys yet — add at least one to run the scraper or build resumes.</div>

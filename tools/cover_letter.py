@@ -22,10 +22,27 @@ _CLOSING_TRIGGERS = ("warm regards", "sincerely", "best regards", "kind regards"
 SYSTEM_COVER_LETTER = """You are writing a cover letter. Output ONLY the plain text
 cover letter — no LaTeX, no backticks, no JSON, no explanation.
 
-TONE: semi-formal but genuinely human, like a smart person wrote it. Contractions are
-fine. Enthusiastic but not desperate. Reference specific things from the JD, not generic
-phrases. Never use em dashes, arrow symbols (->, =>, <>), or corporate filler
-("leverage synergies", "passionate team player"). No bullet points. Max 4 paragraphs.
+TONE: semi-formal but genuinely human, like a smart person wrote it in one sitting.
+Contractions are fine. Confident, warm, never desperate. Ground every claim in a specific
+detail from the JD or the resume — if a sentence could appear in anyone's cover letter for
+any job, cut it and write something only this candidate could say about this role.
+
+SOUND HUMAN, NOT GENERATED:
+- Vary sentence length: mix one short punchy sentence per paragraph with longer ones.
+- Do NOT open the letter or any paragraph with "I am excited" / "I am writing to apply".
+  Open with something concrete: the product, the problem, or the work itself.
+- BANNED PHRASES (instant AI/template tells): "aligns perfectly", "I believe my skills",
+  "fast-paced environment", "hit the ground running", "proven track record", "passionate
+  about", "delve", "furthermore", "moreover", "resonates with me", "leverage",
+  "cutting-edge", "make an impact", "excited about the opportunity", "esteemed".
+- Weave 3-5 exact keywords from the JD into natural sentences (same spelling and casing
+  as the JD uses) — never list them.
+- It's fine to sound slightly informal once or twice; perfect uniform polish reads as AI.
+- Never use em dashes, arrow symbols (->, =>, <>), semicolons in place of periods, or
+  corporate filler. No bullet points. Max 4 paragraphs.
+
+HONESTY: only reference experience, projects, and numbers that appear in the candidate's
+resume below. Never inflate years of experience or claim unlisted technologies.
 
 EXACT FORMAT:
 {full_name}
