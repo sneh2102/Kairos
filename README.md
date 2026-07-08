@@ -7,6 +7,8 @@ driven by [LangGraph](https://github.com/langchain-ai/langgraph) multi-agent
 graphs. Ships as a desktop app (Electron + React) with a headless CLI
 underneath for scripting.
 
+![Overview dashboard — pipeline stats, screener verdicts, and recent applications](images/over-view.jpg)
+
 ![Review jobs screen — every scraped job with its AI screener verdict and match score](images/Review.jpg)
 
 ## Contents
