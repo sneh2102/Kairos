@@ -1,0 +1,136 @@
+name: Build desktop app
+
+# Builds the Windows .exe installer and the macOS .dmg.
+# Runs on a version tag (v*) — which also publishes a GitHub Release — or manually.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Both jobs are identical except for the OS-specific native binaries
+# (chromium/tectonic/cloudflared) and the electron-builder target. Every step
+# uses bash so the two jobs stay in sync — Windows runners ship Git bash.
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Freeze the FastAPI backend. The venv MUST live at ./venv — server.spec
+      # globs venv/**/tls_client/dependencies to bundle tls_client's native libs.
+      - name: Freeze backend (PyInstaller)
+        run: |
+          python -m venv venv
+          venv/Scripts/python -m pip install --upgrade pip
+          venv/Scripts/pip install -r requirements.txt pyinstaller
+          venv/Scripts/pyinstaller server.spec --distpath dist_backend --workpath build_backend -y
+
+      - name: Bundle Chromium (Playwright)
+        run: PLAYWRIGHT_BROWSERS_PATH="$PWD/desktop/build-resources/chromium" venv/Scripts/python -m playwright install chromium
+
+      - name: Bundle Tectonic
+        run: |
+          url=$(curl -s https://api.github.com/repos/tectonic-typesetting/tectonic/releases/latest \
+            | jq -r '.assets[].browser_download_url' | grep 'x86_64-pc-windows-msvc.zip' | head -1)
+          curl -sL "$url" -o tectonic.zip
+          python -c "import zipfile; zipfile.ZipFile('tectonic.zip').extractall('desktop/build-resources/tectonic')"
+
+      - name: Bundle cloudflared
+        run: |
+          mkdir -p desktop/build-resources/cloudflared
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe \
+            -o desktop/build-resources/cloudflared/cloudflared.exe
+
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: desktop
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+
+      - name: Build installer
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: desktop/release/*.exe
+
+      - name: Publish to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/release/*.exe
+
+  macos:
+    runs-on: macos-latest # Apple Silicon → single-arch arm64 .dmg
+    defaults:
+      run:
+        shell: bash
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false # unsigned build (package.json sets identity: null)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Freeze backend (PyInstaller)
+        run: |
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/pip install -r requirements.txt pyinstaller
+          venv/bin/pyinstaller server.spec --distpath dist_backend --workpath build_backend -y
+
+      - name: Bundle Chromium (Playwright)
+        run: PLAYWRIGHT_BROWSERS_PATH="$PWD/desktop/build-resources/chromium" venv/bin/python -m playwright install chromium
+
+      - name: Bundle Tectonic
+        run: |
+          mkdir -p desktop/build-resources/tectonic
+          url=$(curl -s https://api.github.com/repos/tectonic-typesetting/tectonic/releases/latest \
+            | jq -r '.assets[].browser_download_url' | grep 'aarch64-apple-darwin.tar.gz' | head -1)
+          curl -sL "$url" | tar xz -C desktop/build-resources/tectonic
+          chmod +x desktop/build-resources/tectonic/tectonic
+
+      - name: Bundle cloudflared
+        run: |
+          mkdir -p desktop/build-resources/cloudflared
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz \
+            | tar xz -C desktop/build-resources/cloudflared
+          chmod +x desktop/build-resources/cloudflared/cloudflared
+
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: desktop
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+
+      - name: Build DMG
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist:mac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: desktop/release/*.dmg
+
+      - name: Publish to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/release/*.dmg

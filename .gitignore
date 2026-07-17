@@ -19,4 +19,7 @@ build
 dist/
 Job-scraper-LangGraph
 ziprecruiter_debug.png
+# Bundled native binaries are fetched per-OS in CI, not committed.
+# resume-icons are small platform-agnostic source assets — keep them tracked.
 desktop/build-resources/*
+!desktop/build-resources/resume-icons/
