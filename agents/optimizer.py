@@ -19,7 +19,7 @@ import logging
 import re
 
 from agents import ats_rules
-from agents._writer_common import enforce_experience_years
+from agents._writer_common import enforce_experience_years, escape_latex_specials
 from config import CONFIG
 from llm.client import RotatingOllamaClient
 
@@ -105,7 +105,9 @@ def inject_missing_keywords(skills_latex: str, missing: list[str], cap: int = 8)
     line if the writer already made one."""
     if not missing or not skills_latex.strip():
         return skills_latex
-    add = ", ".join(_display(k) for k in missing[:cap])
+    # escape: JD keywords routinely contain LaTeX specials (C#, R&D, C++/.NET)
+    # and are injected raw, bypassing the writers' clean() pass.
+    add = escape_latex_specials(", ".join(_display(k) for k in missing[:cap]))
 
     fam = re.search(r"(\\textbf\{Familiar With:?\}\{:?\s*)([^}]*)(\})", skills_latex)
     if fam:

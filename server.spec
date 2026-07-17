@@ -1,10 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import glob
+
+# tls_client ships per-OS native libs; the venv layout differs by platform
+# (Windows: venv/Lib/site-packages/..., macOS/Linux: venv/lib/pythonX.Y/site-packages/...).
+# Glob both so the same spec freezes on Windows and macOS.
+_tls = glob.glob('venv/**/tls_client/dependencies', recursive=True)
+_tls_binaries = [(_tls[0], 'tls_client/dependencies')] if _tls else []
 
 a = Analysis(
     ['run_server.py'],
     pathex=[],
-    binaries=[('venv/Lib/site-packages/tls_client/dependencies', 'tls_client/dependencies')],
+    binaries=_tls_binaries,
     datas=[('config.example.json', '.')],
     hiddenimports=[],
     hookspath=[],

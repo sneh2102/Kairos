@@ -11,11 +11,12 @@
     "preview": "vite preview",
     "electron": "electron .",
     "start": "concurrently -k -n VITE,ELECTRON -c blue,green \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "build": {
     "appId": "com.snehpatel.jobscraper",
-    "productName": "Job Scraper",
+    "productName": "Kairos",
     "directories": {
       "output": "release"
     },
@@ -39,13 +40,33 @@
       {
         "from": "build-resources/resume-icons",
         "to": "resume-icons"
+      },
+      {
+        "from": "build-resources/cloudflared",
+        "to": "cloudflared"
+      },
+      {
+        "from": "../mobile",
+        "to": "mobile",
+        "filter": [
+          "**/*",
+          "!.expo",
+          "!.claude",
+          "!.gitignore"
+        ]
       }
     ],
     "win": {
       "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity",
+      "identity": null
     }
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.4",
@@ -53,6 +74,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

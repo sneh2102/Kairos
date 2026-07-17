@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
-  Line,
-  LineChart,
-  ReferenceLine,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -62,10 +61,9 @@ export default function Dashboard() {
 
   const VERDICT_COLOR: Record<string, string> = { yes: c.good, maybe: c.warn, no: c.bad };
   const verdictData = ["yes", "maybe", "no"].map((v) => ({ verdict: v, count: stats.verdict_counts[v] ?? 0 }));
-  const appliedData = stats.applied_by_date.map((d) => ({ date: d.date.slice(5), count: d.count }));
-  const scoreData = stats.ats_scores.map((score, i) => ({ index: i + 1, score }));
-  const avgScore = scoreData.length
-    ? Math.round(scoreData.reduce((s, d) => s + d.score, 0) / scoreData.length)
+  const appliedData = fillLastDays(stats.applied_by_date, 30);
+  const avgScore = stats.ats_scores.length
+    ? Math.round(stats.ats_scores.reduce((s, v) => s + v, 0) / stats.ats_scores.length)
     : null;
   const tooltipStyle = { background: c.surface, border: `1px solid ${c.border}`, borderRadius: 10, fontSize: 12, color: "var(--fg)" };
 
@@ -85,11 +83,21 @@ export default function Dashboard() {
       </header>
 
       <div className="flex gap-4 flex-wrap">
-        <StatCard label="Jobs to review" value={stats.pending_jobs} />
         <StatCard label="Applications sent" value={stats.applied_count} accent="accent" />
+        <StatCard label="Jobs extracted" value={stats.total_extracted} />
+        <StatCard label="Resumes created" value={stats.resumes_created} />
+        <StatCard label="Jobs to review" value={stats.pending_jobs} />
         <StatCard label="Worth applying" value={stats.verdict_counts.yes ?? 0} accent="good" />
         <StatCard label="Avg ATS score" value={avgScore ?? "—"} accent={avgScore != null && avgScore >= 85 ? "good" : "warn"} />
       </div>
+
+      <Funnel
+        stages={[
+          { label: "Jobs extracted", value: stats.total_extracted },
+          { label: "Resumes created", value: stats.resumes_created },
+          { label: "Applications sent", value: stats.applied_count },
+        ]}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ChartCard title="Screener verdicts" subtitle="How your rules rated scraped jobs">
@@ -112,35 +120,77 @@ export default function Dashboard() {
           )}
         </ChartCard>
 
-        <ChartCard title="Applications over time" subtitle="When you sent them">
-          {appliedData.length === 0 ? (
+        <ChartCard title="Applications per day" subtitle="Last 30 days, including the quiet ones">
+          {stats.applied_by_date.length === 0 ? (
             <EmptyChart hint="Mark a job applied to start the trend." />
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={appliedData} margin={{ top: 6, right: 10, left: -18, bottom: 0 }}>
+              <BarChart data={appliedData} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
-                <XAxis dataKey="date" stroke={c.axis} fontSize={12} tickLine={false} axisLine={{ stroke: c.grid }} />
+                <XAxis dataKey="date" stroke={c.axis} fontSize={12} tickLine={false} axisLine={{ stroke: c.grid }} minTickGap={24} />
                 <YAxis stroke={c.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Line type="monotone" dataKey="count" stroke={c.accent} strokeWidth={2.5} dot={{ r: 3, fill: c.accent }} activeDot={{ r: 5 }} />
-              </LineChart>
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: c.grid, opacity: 0.35 }} />
+                <Bar dataKey="count" fill={c.accent} radius={[4, 4, 0, 0]} maxBarSize={18} />
+              </BarChart>
             </ResponsiveContainer>
           )}
         </ChartCard>
 
-        <ChartCard title="ATS scores" subtitle="Each built resume · 85 is the pass line" className="lg:col-span-2">
-          {scoreData.length === 0 ? (
-            <EmptyChart hint="Build a resume to see its score." />
+        <ChartCard title="Jobs by board" subtitle="Where jobs come from, and which boards are worth your scraper's time">
+          {stats.site_counts.length === 0 ? (
+            <EmptyChart hint="Run a scrape to compare job boards." />
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={scoreData} margin={{ top: 6, right: 10, left: -18, bottom: 0 }}>
+              <BarChart data={stats.site_counts} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
-                <XAxis dataKey="index" stroke={c.axis} fontSize={12} tickLine={false} axisLine={{ stroke: c.grid }} />
-                <YAxis stroke={c.axis} fontSize={12} domain={[0, 100]} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <ReferenceLine y={85} stroke={c.good} strokeDasharray="5 4" strokeWidth={1.5} />
-                <Line type="monotone" dataKey="score" stroke={c.accent} strokeWidth={2.5} dot={{ r: 3, fill: c.accent }} activeDot={{ r: 5 }} />
-              </LineChart>
+                <XAxis dataKey="site" stroke={c.axis} fontSize={12} tickLine={false} axisLine={{ stroke: c.grid }} />
+                <YAxis stroke={c.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: c.grid, opacity: 0.35 }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="total" name="Scraped" fill={c.accent} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="yes" name="Worth applying" fill={c.good} radius={[4, 4, 0, 0]} maxBarSize={28} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Recent applications" subtitle="The last five you sent">
+          {stats.recent_applied.length === 0 ? (
+            <EmptyChart hint="Mark a job applied to see it here." />
+          ) : (
+            <div className="flex flex-col divide-y divide-border">
+              {stats.recent_applied.map((r) => (
+                <Link key={r.id} to="/applied" className="flex items-center gap-3 py-2.5 group">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-fg truncate group-hover:text-accent transition-colors">{r.title}</div>
+                    <div className="text-xs text-muted truncate">{r.company}</div>
+                  </div>
+                  <span className="text-xs text-muted shrink-0 num">{r.applied_date}</span>
+                  <span className={`chip text-[11px] shrink-0 ${r.ats_score >= 85 ? "text-good" : "text-warn"}`}>
+                    ATS {r.ats_score}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard
+          title="Skills costing you matches"
+          subtitle="What screened JDs keep asking for that your resume doesn't show — learn or add these first"
+          className="lg:col-span-2"
+        >
+          {stats.top_missing_skills.length === 0 ? (
+            <EmptyChart hint="Run a scrape — missing skills show up once jobs are screened." />
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(220, stats.top_missing_skills.length * 30)}>
+              <BarChart data={stats.top_missing_skills} layout="vertical" margin={{ top: 6, right: 24, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={c.grid} horizontal={false} />
+                <XAxis type="number" stroke={c.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={{ stroke: c.grid }} />
+                <YAxis type="category" dataKey="skill" width={140} stroke={c.axis} fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: c.grid, opacity: 0.35 }} formatter={(v) => [`${v} jobs`, "Missing in"]} />
+                <Bar dataKey="count" fill={c.accent} radius={[0, 4, 4, 0]} maxBarSize={18} />
+              </BarChart>
             </ResponsiveContainer>
           )}
         </ChartCard>
@@ -173,4 +223,42 @@ function ChartCard({
 
 function EmptyChart({ hint }: { hint: string }) {
   return <div className="h-[220px] flex items-center justify-center text-sm text-muted">{hint}</div>;
+}
+
+function Funnel({ stages }: { stages: { label: string; value: number }[] }) {
+  return (
+    <div className="card px-5 py-4 flex items-center gap-2 flex-wrap">
+      {stages.map((s, i) => {
+        const prev = i > 0 ? stages[i - 1].value : 0;
+        const pct = i > 0 && prev > 0 ? Math.round((s.value / prev) * 100) : null;
+        return (
+          <div key={s.label} className="flex items-center gap-2">
+            {i > 0 && <span className="text-muted text-lg px-1" aria-hidden>›</span>}
+            <div>
+              <div className="num text-lg font-semibold text-fg leading-tight">
+                {s.value.toLocaleString()}
+                {pct != null && <span className="text-xs font-normal text-muted ml-1.5">{pct}% of previous</span>}
+              </div>
+              <div className="text-xs text-muted">{s.label}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Zero-fills the last N local days so no-application days show as gaps in the
+// bars instead of being silently skipped by the axis.
+function fillLastDays(rows: { date: string; count: number }[], days: number) {
+  const byDate = new Map(rows.map((r) => [r.date, r.count]));
+  const out: { date: string; count: number }[] = [];
+  const d = new Date();
+  d.setDate(d.getDate() - (days - 1));
+  for (let i = 0; i < days; i++) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    out.push({ date: iso.slice(5), count: byDate.get(iso) ?? 0 });
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
 }
