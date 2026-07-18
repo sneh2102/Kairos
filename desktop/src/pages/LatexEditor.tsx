@@ -12,12 +12,20 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
   const [compiling, setCompiling] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [previewVersion, setPreviewVersion] = useState(0);
+  const [sections, setSections] = useState<{ id: string; name: string }[]>([]);
+  const [rebuildId, setRebuildId] = useState("");
+  const [rebuildMsg, setRebuildMsg] = useState("");
+  const [rebuilding, setRebuilding] = useState(false);
 
   useEffect(() => {
     if (kind === "job") {
       api.getJob(recordId).then((job) => {
         setLatexCode(job.latex_content || "");
         setTitle(`${job.title} @ ${job.company}`);
+      });
+      api.rebuildableSections().then((s) => {
+        setSections(s);
+        setRebuildId(s[0]?.id || "");
       });
     } else {
       api.getApplied(recordId).then((row) => {
@@ -27,6 +35,20 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, recordId]);
+
+  async function rebuildSection() {
+    setRebuilding(true);
+    setMessage(null);
+    try {
+      const res = await api.rebuildSection(recordId, rebuildId, rebuildMsg.trim(), latexCode);
+      setLatexCode(res.latex);
+      setMessage({ text: "Section rebuilt — review, then Compile & Save.", ok: true });
+    } catch (e) {
+      setMessage({ text: String(e), ok: false });
+    } finally {
+      setRebuilding(false);
+    }
+  }
 
   async function compileAndSave() {
     setCompiling(true);
@@ -62,6 +84,32 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
           </button>
         </div>
       </div>
+
+      {kind === "job" && sections.length > 0 && (
+        <div className="card flex flex-wrap items-center gap-2 p-2">
+          <span className="text-xs text-muted">Rebuild section:</span>
+          <select
+            className="input text-xs py-1 w-auto"
+            value={rebuildId}
+            onChange={(e) => setRebuildId(e.target.value)}
+          >
+            {sections.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input text-xs py-1 flex-1 min-w-[12rem]"
+            placeholder="Optional instruction (e.g. 'make it more concise') — leave blank to just rebuild"
+            value={rebuildMsg}
+            onChange={(e) => setRebuildMsg(e.target.value)}
+          />
+          <button className="btn-secondary text-xs" onClick={rebuildSection} disabled={rebuilding || !rebuildId}>
+            {rebuilding ? "Rebuilding…" : "Rebuild"}
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 flex-1 min-h-[75vh]">
         <textarea
