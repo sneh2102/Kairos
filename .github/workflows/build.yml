@@ -38,10 +38,12 @@ jobs:
         run: PLAYWRIGHT_BROWSERS_PATH="$PWD/desktop/build-resources/chromium" venv/Scripts/python -m playwright install chromium
 
       - name: Bundle Tectonic
+        env:
+          GH_TOKEN: ${{ github.token }} # gh auth → avoids the unauthenticated API rate limit
         run: |
-          url=$(curl -s https://api.github.com/repos/tectonic-typesetting/tectonic/releases/latest \
-            | jq -r '.assets[].browser_download_url' | grep 'x86_64-pc-windows-msvc.zip' | head -1)
-          curl -sL "$url" -o tectonic.zip
+          mkdir -p desktop/build-resources/tectonic
+          gh release download --repo tectonic-typesetting/tectonic \
+            --pattern '*x86_64-pc-windows-msvc.zip' --output tectonic.zip --clobber
           python -c "import zipfile; zipfile.ZipFile('tectonic.zip').extractall('desktop/build-resources/tectonic')"
 
       - name: Bundle cloudflared
@@ -99,11 +101,13 @@ jobs:
         run: PLAYWRIGHT_BROWSERS_PATH="$PWD/desktop/build-resources/chromium" venv/bin/python -m playwright install chromium
 
       - name: Bundle Tectonic
+        env:
+          GH_TOKEN: ${{ github.token }} # gh auth → avoids the unauthenticated API rate limit
         run: |
           mkdir -p desktop/build-resources/tectonic
-          url=$(curl -s https://api.github.com/repos/tectonic-typesetting/tectonic/releases/latest \
-            | jq -r '.assets[].browser_download_url' | grep 'aarch64-apple-darwin.tar.gz' | head -1)
-          curl -sL "$url" | tar xz -C desktop/build-resources/tectonic
+          gh release download --repo tectonic-typesetting/tectonic \
+            --pattern '*aarch64-apple-darwin.tar.gz' --output tectonic.tar.gz --clobber
+          tar xzf tectonic.tar.gz -C desktop/build-resources/tectonic
           chmod +x desktop/build-resources/tectonic/tectonic
 
       - name: Bundle cloudflared
