@@ -17,7 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 import config
-from agents import github_importer, prompt_registry, screener
+from agents import (custom_section_writer, experience_writer, github_importer, project_writer,
+                    prompt_registry, screener, skills_writer)
 from config import CONFIG
 from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
@@ -444,6 +445,78 @@ def compile_job(job_id: int, payload: dict = Body(...)):
                               lambda resume_path: jobs_db.save_build_artifacts(
                                   job_id, payload.get("latex", ""), job.get("cover_letter_content", "") or "",
                                   job.get("ats_score", 0) or 0, str(resume_path), job.get("cover_path", "") or ""))
+
+
+@app.get("/api/rebuildable-sections")
+def rebuildable_sections():
+    """Sections the editor's rebuilder can regenerate: the three core writer
+    sections plus any user-defined custom sections."""
+    core = [{"id": "skills", "name": "Skills"}, {"id": "experience", "name": "Experience"},
+            {"id": "projects", "name": "Projects"}]
+    custom = [{"id": s["id"], "name": s.get("name", s["id"])}
+              for s in CONFIG.get("custom_sections", []) if s.get("id")]
+    return core + custom
+
+
+@app.post("/api/jobs/{job_id}/rebuild-section")
+def rebuild_section(job_id: int, payload: dict = Body(...)):
+    """Regenerate one resume section for a built job, optionally steered by a user
+    message. Core sections (skills/experience/projects): a message drives a
+    surgical rebuild against the current text; blank regenerates from scratch.
+    Custom sections always regenerate, with the message as an extra instruction.
+    Splices the fresh block into the supplied LaTeX (the editor's current text)
+    and returns it — the caller reviews and hits Compile & Save. Nothing is
+    persisted here."""
+    job = jobs_db.get_by_id(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    section_id = payload.get("section_id", "")
+    message = (payload.get("message", "") or "").strip()
+    title, company = job.get("title", ""), job.get("company", "")
+    description = job.get("description", "") or f"{title} role at {company}."
+    profile = CONFIG["profile"]
+    pcfg = CONFIG["pipeline"]
+    existing_resume = config.load_text_file(pcfg["resume_path"])
+    source = payload.get("latex", "") or job.get("latex_content", "") or ""
+
+    custom = {s["id"]: s for s in CONFIG.get("custom_sections", []) if s.get("id")}
+    name_map = {s.get("name", "").lower(): sid for sid, s in custom.items() if s.get("name")}
+    heading, prior = latex.find_section(source, section_id, name_map)
+
+    client = RotatingOllamaClient(
+        config.collect_ollama_keys(), CONFIG["model"]["pipeline"],
+        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
+        temperature=CONFIG["model"]["temperature"],
+    )
+    try:
+        if section_id == "skills":
+            block = (skills_writer.rebuild(client, title, company, description, message, prior)
+                     if message and prior else
+                     skills_writer.write(client, title, company, description, existing_resume))
+        elif section_id == "experience":
+            roles = CONFIG["experience_roles"]
+            block = (experience_writer.rebuild(client, title, company, description, message, prior)
+                     if message and prior else
+                     experience_writer.write(client, title, company, description, existing_resume, roles))
+        elif section_id == "projects":
+            projects_text = config.load_text_file(pcfg["projects_path"])
+            block = (project_writer.rebuild(client, title, company, description, message, prior, projects_text)
+                     if message and prior else
+                     project_writer.write(client, title, company, description, existing_resume, projects_text))
+        elif section_id in custom:
+            block = custom_section_writer.write(
+                client, custom[section_id], profile.get("full_name", ""), title, company, description,
+                existing_resume, experience_yrs=profile.get("experience_yrs", ""), custom_instruction=message)
+        else:
+            raise HTTPException(404, f"section '{section_id}' is not rebuildable")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"rebuild failed: {e}")
+
+    fallback_name = heading or custom.get(section_id, {}).get("name") or section_id
+    return {"section_id": section_id, "block": block,
+            "latex": latex.replace_section(source, fallback_name, block)}
 
 
 # ---- applied --------------------------------------------------------------

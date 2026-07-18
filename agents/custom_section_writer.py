@@ -12,7 +12,8 @@ _PLACEHOLDERS = ("full_name", "title", "company", "description", "existing_resum
 
 
 def write(client: RotatingOllamaClient, section_cfg: dict, full_name: str, title: str, company: str,
-          description: str, existing_resume: str, ats_feedback: str = "", experience_yrs: str = "") -> str:
+          description: str, existing_resume: str, ats_feedback: str = "", experience_yrs: str = "",
+          custom_instruction: str = "") -> str:
     values = {
         "full_name": full_name, "title": title, "company": company,
         "description": description, "existing_resume": existing_resume,
@@ -23,6 +24,12 @@ def write(client: RotatingOllamaClient, section_cfg: dict, full_name: str, title
     for key in _PLACEHOLDERS:
         user_prompt = user_prompt.replace(f"{{{key}}}", values[key])
     system_prompt = section_cfg.get("system_prompt", "Output ONLY raw LaTeX for this resume section.")
+    # Optional user steer for a manual rebuild. Empty → a plain regenerate with
+    # the section's own prompts. Placed above the honesty rule so it can't
+    # override it.
+    if custom_instruction and custom_instruction.strip():
+        system_prompt += ("\n\nUSER INSTRUCTION (highest priority — follow exactly): "
+                          + custom_instruction.strip())
     # Hard honesty rule enforced in code (independent of the user-editable prompt),
     # so the model can't claim seniority the candidate doesn't have.
     if str(experience_yrs or "").strip().isdigit():
