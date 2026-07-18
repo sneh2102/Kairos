@@ -19,6 +19,7 @@ const SETUP = [
 ];
 
 const SYSTEM = [
+  { to: "/mobile", label: "Mobile" },
   { to: "/logs", label: "Activity log" },
   { to: "/settings", label: "Settings" },
   { to: "/setup", label: "Setup wizard" },
@@ -35,7 +36,7 @@ export default function Sidebar() {
   return (
     <nav className="w-60 shrink-0 border-r border-border bg-surface flex flex-col">
       <div className="px-5 pt-6 pb-5">
-        <div className="text-[17px] font-semibold text-fg tracking-tight">Job Scraper</div>
+        <div className="text-[17px] font-semibold text-fg tracking-tight">Kairos</div>
         <div className="text-[12px] text-muted mt-0.5">Your applicant pipeline</div>
       </div>
 

@@ -1,3 +1,4 @@
+// Mirror of the desktop app's types (desktop/src/lib/types.ts).
 export type Verdict = "yes" | "maybe" | "no";
 
 export interface JobRow {
@@ -38,7 +39,6 @@ export interface AppliedRow {
   cover_path: string;
   role_level?: string;
   skills_match_pct?: string;
-  // full fields below only present on the single-row GET (not the list)
   years_required?: string;
   matched_skills?: string;
   missing_skills?: string;

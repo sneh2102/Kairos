@@ -18,6 +18,7 @@ import Prompts from "./pages/Prompts";
 import Settings from "./pages/Settings";
 import Setup from "./pages/Setup";
 import Logs from "./pages/Logs";
+import Mobile from "./pages/Mobile";
 
 export default function App() {
   return (
@@ -64,6 +65,7 @@ function AppShell() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/setup" element={<Setup onDone={() => setOnboarded(true)} />} />
             <Route path="/logs" element={<Logs />} />
+            <Route path="/mobile" element={<Mobile />} />
           </Routes>
         )}
       </main>

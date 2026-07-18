@@ -5,15 +5,16 @@ Run: uvicorn server:app --port 8756
 """
 import asyncio
 import logging
+import os
 import threading
 import time
 import uuid
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import config
 from agents import (custom_section_writer, experience_writer, github_importer, project_writer,
@@ -29,6 +30,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 app = FastAPI(title="Job Scraper backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Public exposure guard: uvicorn stays on 127.0.0.1, so the only way in from
+# outside this PC is the Cloudflare Tunnel. Cloudflare stamps every proxied
+# request with Cf-Connecting-Ip; the local desktop app (also on 127.0.0.1) does
+# not. So we require the shared token ONLY on tunnel traffic — desktop app is
+# untouched. Set TUNNEL_TOKEN in .env to enable; unset = gate off (LAN dev).
+# ponytail: /ws/events stays ungated — it only emits scrape progress, can't
+# mutate anything; add a query-param token check if that WS ever carries secrets.
+TUNNEL_TOKEN = os.environ.get("TUNNEL_TOKEN")
+
+
+@app.middleware("http")
+async def require_tunnel_token(request: Request, call_next):
+    via_tunnel = "cf-connecting-ip" in request.headers
+    if via_tunnel and request.url.path != "/api/health":
+        if not TUNNEL_TOKEN or request.headers.get("x-api-token") != TUNNEL_TOKEN:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
 
 jobs_db = JobsDB()
 applied_db = AppliedDB()
@@ -575,9 +594,16 @@ def stats():
     return {
         "pending_jobs": jobs_db.count(),
         "applied_count": applied_db.count(),
+        "total_extracted": jobs_db.lifetime_count(),
+        # ponytail: counts resumes still on record; built-then-deleted jobs drop
+        # out — add a meta counter if a true lifetime number ever matters.
+        "resumes_created": jobs_db.built_count() + applied_db.built_count(),
         "verdict_counts": jobs_db.verdict_counts(),
         "applied_by_date": [{"date": d, "count": c} for d, c in applied_db.applied_by_date()],
         "ats_scores": applied_db.ats_scores(),
+        "top_missing_skills": jobs_db.top_missing_skills(10),
+        "site_counts": jobs_db.site_counts(),
+        "recent_applied": applied_db.recent(5),
     }
 
 
