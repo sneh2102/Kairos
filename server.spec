@@ -1,18 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import glob
+from PyInstaller.utils.hooks import collect_data_files
 
-# tls_client ships per-OS native libs; the venv layout differs by platform
-# (Windows: venv/Lib/site-packages/..., macOS/Linux: venv/lib/pythonX.Y/site-packages/...).
-# Glob both so the same spec freezes on Windows and macOS.
-_tls = glob.glob('venv/**/tls_client/dependencies', recursive=True)
-_tls_binaries = [(_tls[0], 'tls_client/dependencies')] if _tls else []
+# tls_client ships its native libs in tls_client/dependencies. Locate the
+# package by import (not by globbing the venv), so this resolves regardless of
+# OS or venv layout (Windows venv/Lib vs macOS/Linux venv/lib/pythonX.Y).
+_tls_datas = collect_data_files('tls_client')
 
 a = Analysis(
     ['run_server.py'],
     pathex=[],
-    binaries=_tls_binaries,
-    datas=[('config.example.json', '.')],
+    binaries=[],
+    datas=[('config.example.json', '.')] + _tls_datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
