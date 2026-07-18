@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import type { CustomSection } from "../lib/types";
 import PdfViewer from "../components/PdfViewer";
 
 export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
@@ -13,7 +12,7 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
   const [compiling, setCompiling] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [previewVersion, setPreviewVersion] = useState(0);
-  const [customSections, setCustomSections] = useState<CustomSection[]>([]);
+  const [sections, setSections] = useState<{ id: string; name: string }[]>([]);
   const [rebuildId, setRebuildId] = useState("");
   const [rebuildMsg, setRebuildMsg] = useState("");
   const [rebuilding, setRebuilding] = useState(false);
@@ -24,9 +23,9 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
         setLatexCode(job.latex_content || "");
         setTitle(`${job.title} @ ${job.company}`);
       });
-      api.getResumeData().then((d) => {
-        setCustomSections(d.custom_sections);
-        setRebuildId(d.custom_sections[0]?.id || "");
+      api.rebuildableSections().then((s) => {
+        setSections(s);
+        setRebuildId(s[0]?.id || "");
       });
     } else {
       api.getApplied(recordId).then((row) => {
@@ -86,15 +85,15 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
         </div>
       </div>
 
-      {kind === "job" && customSections.length > 0 && (
+      {kind === "job" && sections.length > 0 && (
         <div className="card flex flex-wrap items-center gap-2 p-2">
-          <span className="text-xs text-muted">Rebuild custom section:</span>
+          <span className="text-xs text-muted">Rebuild section:</span>
           <select
             className="input text-xs py-1 w-auto"
             value={rebuildId}
             onChange={(e) => setRebuildId(e.target.value)}
           >
-            {customSections.map((s) => (
+            {sections.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>

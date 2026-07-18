@@ -142,6 +142,25 @@ def reassemble(sections: dict[str, str], section_order: list[str]) -> str:
     return get_active_preamble() + header + "\n".join(body_parts) + "\n\\end{document}\n"
 
 
+def find_section(full_latex: str, section_id: str, extra_name_map: dict | None = None) -> tuple[str | None, str]:
+    """Locate a section in an assembled resume by its id, returning
+    (heading_text, block). Heading is the resume's actual \\section{...} text (so
+    it can be fed straight to replace_section); block includes that heading.
+    (None, "") if the section isn't present. Used by the section rebuilder."""
+    name_map = {**SECTION_NAME_TO_ID, **(extra_name_map or {})}
+    matches = list(re.finditer(r"\\section\{([^}]+)\}", full_latex))
+    for i, m in enumerate(matches):
+        name = m.group(1).strip()
+        sid = name_map.get(name.lower(), name.lower().replace(" ", "_"))
+        if sid == section_id:
+            end_doc = full_latex.find("\\end{document}", m.end())
+            nxt = matches[i + 1].start() if i + 1 < len(matches) else None
+            bounds = [b for b in (nxt, end_doc if end_doc != -1 else None) if b is not None]
+            end = min(bounds) if bounds else len(full_latex)
+            return name, full_latex[m.start():end].strip()
+    return None, ""
+
+
 def replace_section(full_latex: str, section_name: str, new_block: str) -> str:
     """Swap the \\section{section_name} block in an assembled resume for new_block,
     used by the custom-section rebuilder. Matches the section by its \\section{...}
@@ -397,5 +416,11 @@ if __name__ == "__main__":
     # missing section → inserted before \end{document}; heading auto-added when omitted
     out2 = replace_section(doc, "Awards", "won things")
     assert "\\section{Awards}\nwon things\n\\end{document}" in out2 and "\\section{Skills}\nkeep" in out2, out2
+
+    # find_section: map heading → id, return real heading + block; None when absent
+    resume = "\\begin{document}\nHEAD\n\\section{Technical Skills}\ns1\n\\section{Summary}\nsum\n\\end{document}\n"
+    assert find_section(resume, "skills") == ("Technical Skills", "\\section{Technical Skills}\ns1"), find_section(resume, "skills")
+    assert find_section(resume, "summary")[0] == "Summary"
+    assert find_section(resume, "projects") == (None, "")
 
     print("ok")

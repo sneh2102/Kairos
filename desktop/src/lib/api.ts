@@ -75,6 +75,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ latex: latexCode }),
     }),
+  rebuildableSections: () => request<{ id: string; name: string }[]>("/api/rebuildable-sections"),
   rebuildSection: (id: number, sectionId: string, message: string, latex: string) =>
     request<{ section_id: string; latex: string; block: string }>(`/api/jobs/${id}/rebuild-section`, {
       method: "POST",
