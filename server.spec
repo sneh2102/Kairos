@@ -1,11 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
+# tls_client ships its native libs in tls_client/dependencies. Locate the
+# package by import (not by globbing the venv), so this resolves regardless of
+# OS or venv layout (Windows venv/Lib vs macOS/Linux venv/lib/pythonX.Y).
+_tls_datas = collect_data_files('tls_client')
 
 a = Analysis(
     ['run_server.py'],
     pathex=[],
-    binaries=[('venv/Lib/site-packages/tls_client/dependencies', 'tls_client/dependencies')],
-    datas=[('config.example.json', '.')],
+    binaries=[],
+    datas=[('config.example.json', '.')] + _tls_datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

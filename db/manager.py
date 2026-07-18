@@ -194,6 +194,50 @@ class JobsDB:
         with self._connect() as con:
             return con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
+    def lifetime_count(self) -> int:
+        """Total jobs ever extracted — AUTOINCREMENT's sqlite_sequence high-water
+        mark, which survives cleanup deletes and moves to applied.db."""
+        with self._connect() as con:
+            row = con.execute("SELECT seq FROM sqlite_sequence WHERE name='jobs'").fetchone()
+            return row[0] if row else 0
+
+    def built_count(self) -> int:
+        with self._connect() as con:
+            return con.execute(
+                "SELECT COUNT(*) FROM jobs WHERE coalesce(latex_content,'') != ''"
+            ).fetchone()[0]
+
+    def site_counts(self) -> list[dict]:
+        """Per job board: how many jobs it produced and how many rated yes."""
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT coalesce(nullif(site,''),'unknown'), COUNT(*), "
+                "SUM(CASE WHEN lower(ai_recommendation)='yes' THEN 1 ELSE 0 END) "
+                "FROM jobs GROUP BY 1 ORDER BY 2 DESC"
+            ).fetchall()
+        return [{"site": s, "total": t, "yes": y or 0} for s, t, y in rows]
+
+    def top_missing_skills(self, limit: int = 10) -> list[dict]:
+        """Most frequent entries across every job's comma-separated
+        missing_skills — the JD keywords that keep costing matches. Counted
+        case-insensitively, shown with the first casing seen."""
+        counts: dict[str, int] = {}
+        display: dict[str, str] = {}
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT missing_skills FROM jobs WHERE coalesce(missing_skills,'') != ''"
+            )
+            for (ms,) in rows:
+                for skill in str(ms).split(","):
+                    skill = skill.strip()
+                    key = skill.lower()
+                    if not key or key in ("none", "n/a"):
+                        continue
+                    counts[key] = counts.get(key, 0) + 1
+                    display.setdefault(key, skill)
+        top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+        return [{"skill": display[k], "count": n} for k, n in top]
+
     def _rows_where(self, where_clause: str, params: tuple = ()) -> list[dict]:
         with self._connect() as con:
             con.row_factory = sqlite3.Row
@@ -300,6 +344,16 @@ class AppliedDB:
         with self._connect() as con:
             con.execute("DELETE FROM applied_jobs WHERE id=?", (applied_id,))
 
+    def recent(self, limit: int = 5) -> list[dict]:
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                "SELECT id, company, title, applied_date, ats_score FROM applied_jobs "
+                "ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def applied_by_date(self) -> list[tuple[str, int]]:
         with self._connect() as con:
             rows = con.execute(
@@ -314,6 +368,12 @@ class AppliedDB:
     def count(self) -> int:
         with self._connect() as con:
             return con.execute("SELECT COUNT(*) FROM applied_jobs").fetchone()[0]
+
+    def built_count(self) -> int:
+        with self._connect() as con:
+            return con.execute(
+                "SELECT COUNT(*) FROM applied_jobs WHERE coalesce(tex_content,'') != ''"
+            ).fetchone()[0]
 
 
 def ensure_output_dirs(base: str):
