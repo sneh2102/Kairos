@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 import config
-from agents import github_importer, prompt_registry, screener
+from agents import custom_section_writer, github_importer, prompt_registry, screener
 from config import CONFIG
 from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
@@ -425,6 +425,43 @@ def compile_job(job_id: int, payload: dict = Body(...)):
                               lambda resume_path: jobs_db.save_build_artifacts(
                                   job_id, payload.get("latex", ""), job.get("cover_letter_content", "") or "",
                                   job.get("ats_score", 0) or 0, str(resume_path), job.get("cover_path", "") or ""))
+
+
+@app.post("/api/jobs/{job_id}/rebuild-section")
+def rebuild_section(job_id: int, payload: dict = Body(...)):
+    """Regenerate one custom section for a built resume, optionally steered by a
+    user message (blank message = plain rebuild). Splices the fresh block into the
+    supplied LaTeX (the editor's current text) and returns it — the caller reviews
+    and hits Compile & Save. Nothing is persisted here."""
+    job = jobs_db.get_by_id(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    section_id = payload.get("section_id", "")
+    sec = next((s for s in CONFIG.get("custom_sections", []) if s.get("id") == section_id), None)
+    if not sec:
+        raise HTTPException(404, f"custom section '{section_id}' not found")
+
+    title, company = job.get("title", ""), job.get("company", "")
+    description = job.get("description", "") or f"{title} role at {company}."
+    profile = CONFIG["profile"]
+    client = RotatingOllamaClient(
+        config.collect_ollama_keys(), CONFIG["model"]["pipeline"],
+        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
+        temperature=CONFIG["model"]["temperature"],
+    )
+    try:
+        block = custom_section_writer.write(
+            client, sec, profile.get("full_name", ""), title, company, description,
+            config.load_text_file(CONFIG["pipeline"]["resume_path"]),
+            experience_yrs=profile.get("experience_yrs", ""),
+            custom_instruction=payload.get("message", ""),
+        )
+    except Exception as e:
+        raise HTTPException(400, f"rebuild failed: {e}")
+
+    source = payload.get("latex", "") or job.get("latex_content", "") or ""
+    return {"section_id": section_id, "block": block,
+            "latex": latex.replace_section(source, sec.get("name", section_id), block)}
 
 
 # ---- applied --------------------------------------------------------------

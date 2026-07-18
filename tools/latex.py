@@ -142,6 +142,27 @@ def reassemble(sections: dict[str, str], section_order: list[str]) -> str:
     return get_active_preamble() + header + "\n".join(body_parts) + "\n\\end{document}\n"
 
 
+def replace_section(full_latex: str, section_name: str, new_block: str) -> str:
+    """Swap the \\section{section_name} block in an assembled resume for new_block,
+    used by the custom-section rebuilder. Matches the section by its \\section{...}
+    heading and replaces up to the next \\section or \\end{document}. If the section
+    isn't present, inserts the block before \\end{document} (else appends)."""
+    new_block = new_block.strip()
+    if not re.match(r"\s*\\section\{", new_block):
+        new_block = f"\\section{{{section_name}}}\n{new_block}"  # model omitted the heading
+    start = re.search(r"\\section\{\s*" + re.escape(section_name) + r"\s*\}", full_latex, re.IGNORECASE)
+    if not start:
+        idx = full_latex.rfind("\\end{document}")
+        return (full_latex.rstrip() + "\n" + new_block + "\n") if idx == -1 \
+            else full_latex[:idx] + new_block + "\n" + full_latex[idx:]
+    nxt = re.search(r"\\section\{", full_latex[start.end():])
+    end_doc = full_latex.find("\\end{document}", start.end())
+    bounds = [b for b in (start.end() + nxt.start() if nxt else None,
+                          end_doc if end_doc != -1 else None) if b is not None]
+    end = min(bounds) if bounds else len(full_latex)
+    return full_latex[:start.start()] + new_block + "\n" + full_latex[end:]
+
+
 def sanitize_folder_name(name: str) -> str:
     name = re.sub(r"[^\w\s-]", "", name or "unknown")
     name = re.sub(r"\s+", "_", name.strip())
@@ -368,5 +389,13 @@ if __name__ == "__main__":
 
     no_icon_dir = _adapt_for_tectonic("\\documentclass{article}\n\\faBeer\n")
     assert "~" in no_icon_dir  # unmapped icon falls back to a tie space, not a blank line
+
+    # replace_section: swap in place, stop at next section, keep the rest
+    doc = "\\begin{document}\nHEAD\n\\section{Summary}\nold\n\\section{Skills}\nkeep\n\\end{document}\n"
+    out = replace_section(doc, "Summary", "\\section{Summary}\nnew")
+    assert "\\section{Summary}\nnew\n\\section{Skills}\nkeep" in out and "old" not in out, out
+    # missing section → inserted before \end{document}; heading auto-added when omitted
+    out2 = replace_section(doc, "Awards", "won things")
+    assert "\\section{Awards}\nwon things\n\\end{document}" in out2 and "\\section{Skills}\nkeep" in out2, out2
 
     print("ok")
