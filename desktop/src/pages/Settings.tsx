@@ -28,7 +28,13 @@ export default function Settings() {
     if (!config) return;
     setSaving(true);
     try {
-      await api.putConfig(config);
+      // api_keys lives in this same config.json but is owned by the API Keys
+      // tab's own save flow (/api/ollama-keys) — `config` here still holds
+      // whatever was in it when Settings first loaded, so sending it back
+      // would clobber a key just added on that tab with the stale snapshot.
+      const payload = { ...config };
+      delete payload.api_keys;
+      await api.putConfig(payload);
       if (config.desktop) await window.desktop?.setLaunchOnStartup(config.desktop.launchOnStartup);
       setSavedAt(Date.now());
     } finally {

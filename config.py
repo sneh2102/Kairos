@@ -103,8 +103,14 @@ def save_config(new_cfg: dict):
     up the change without a process restart."""
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(new_cfg, f, indent=2, ensure_ascii=False)
-    CONFIG.clear()
-    CONFIG.update(new_cfg)
+    # save_ollama_key(s) calls this with CONFIG itself as new_cfg (already
+    # mutated in place) — clearing CONFIG would then also clear new_cfg
+    # (same object), so the update() right after copies from an empty dict
+    # and wipes every other setting. Skip the dance when there's nothing to
+    # copy.
+    if new_cfg is not CONFIG:
+        CONFIG.clear()
+        CONFIG.update(new_cfg)
 
 
 # One-time migration: copy legacy .env keys into config.json so config.json is

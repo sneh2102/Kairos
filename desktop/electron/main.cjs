@@ -141,9 +141,7 @@ async function createWindow() {
   // backend keeps scraping/applying after the window closes. Off by default —
   // closing quits like a normal app unless the user opted in.
   mainWindow.on("close", (e) => {
-    const dbg = getDesktopConfig();
-    console.log("DEBUG close event fired. isQuitting=", isQuitting, "desktopConfig=", dbg, "CONFIG_PATH=", CONFIG_PATH);
-    if (isQuitting || !dbg.runInBackground) return;
+    if (isQuitting || !getDesktopConfig().runInBackground) return;
     e.preventDefault();
     mainWindow.hide();
   });
