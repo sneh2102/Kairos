@@ -15,6 +15,36 @@ _RATE_LIMIT_TOKENS = ("rate limit", "429", "401", "403", "quota", "limit exceede
 _CONTENT_SNIFF_TOKENS = ('"score"', '"verdict"', "\\section", "\\resumeItem", "\\resumeSubheading")
 
 
+def validate_api_key(api_key: str) -> tuple[bool, str | None]:
+    """Checks a key is actually accepted by Ollama, for the Settings page's
+    validate-before-save flow. Returns (valid, error_message).
+
+    /api/tags is unauthenticated (it's just the public model catalog — a
+    garbage key gets 200 same as a real one), so it can't tell a valid key
+    from a fake one. /api/chat does check auth first, before it even looks at
+    whether the model exists, so a 401/403 here means the key itself is bad
+    regardless of model name; a minimal 1-token request keeps the probe cheap."""
+    if not api_key.strip():
+        return False, "Key is empty"
+    try:
+        resp = requests.post(
+            f"{OLLAMA_HOST}/api/chat",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": "gpt-oss:20b",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "options": {"num_predict": 1},
+            },
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        return False, f"Could not reach Ollama: {e}"
+    if resp.status_code in (401, 403):
+        return False, "Ollama rejected this key"
+    return True, None
+
+
 class RotatingOllamaClient:
     def __init__(self, api_keys: list[str], model: str,
                  num_predict: int = 32384, num_ctx: int = 64768, temperature: float = 0.3):

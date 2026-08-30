@@ -26,6 +26,22 @@ def _headers(token: str = "") -> dict:
     return headers
 
 
+def validate_token(token: str) -> tuple[bool, str | None]:
+    """Checks a token is actually accepted by GitHub, for the Settings page's
+    validate-before-save flow. Returns (valid, error_message)."""
+    if not token.strip():
+        return False, "Token is empty"
+    try:
+        resp = requests.get(f"{API}/user", headers=_headers(token), timeout=10)
+    except requests.RequestException as e:
+        return False, f"Could not reach GitHub: {e}"
+    if resp.status_code == 200:
+        return True, None
+    if resp.status_code == 401:
+        return False, "GitHub rejected this token"
+    return False, f"GitHub returned HTTP {resp.status_code}"
+
+
 def list_repos(username: str, token: str = "") -> list[dict]:
     resp = requests.get(
         f"{API}/users/{username}/repos",
