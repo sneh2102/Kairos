@@ -1,6 +1,6 @@
 // Electron main process: spawns the Python/FastAPI backend, waits for it to
 // be healthy, then opens the window. Kills the backend on quit.
-const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
@@ -22,6 +22,25 @@ app.setName("Job Scraper");
 
 let backendProcess = null;
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+
+// config.json lives wherever the backend looks for it (config.py's DATA_DIR):
+// the OS per-user data dir when packaged, the repo root in dev. Read fresh on
+// every close rather than cached, so a change made in Settings takes effect
+// without restarting the app.
+const CONFIG_PATH = app.isPackaged
+  ? path.join(app.getPath("userData"), "config.json")
+  : path.join(BACKEND_ROOT, "config.json");
+
+function getDesktopConfig() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    return { runInBackground: false, launchOnStartup: false, ...raw.desktop };
+  } catch {
+    return { runInBackground: false, launchOnStartup: false };
+  }
+}
 
 // Per-install shared secret for mobile tunnel traffic. Generated once on first
 // run, persisted in userData, reused after. The backend checks it
@@ -116,6 +135,17 @@ async function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // "Run in background" setting: hide to tray instead of quitting, so the
+  // backend keeps scraping/applying after the window closes. Off by default —
+  // closing quits like a normal app unless the user opted in.
+  mainWindow.on("close", (e) => {
+    const dbg = getDesktopConfig();
+    console.log("DEBUG close event fired. isQuitting=", isQuitting, "desktopConfig=", dbg, "CONFIG_PATH=", CONFIG_PATH);
+    if (isQuitting || !dbg.runInBackground) return;
+    e.preventDefault();
+    mainWindow.hide();
   });
 
   try {
@@ -240,6 +270,31 @@ ipcMain.handle("mobile:status", () => mobileState);
 
 ipcMain.handle("backend:url", () => BACKEND_URL);
 
+ipcMain.handle("desktop:get-launch-on-startup", () => app.getLoginItemSettings().openAtLogin);
+ipcMain.handle("desktop:set-launch-on-startup", (_e, enabled) => {
+  app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+});
+
+// System tray icon — lets a window hidden by "run in background" be reopened,
+// and gives an explicit Quit that actually exits (vs. the X button, which
+// hides instead of closing when that setting is on). Reuses the mobile app's
+// icon.png so no separate icon asset needs to ship with the desktop build.
+function createTray() {
+  const iconPath = path.join(MOBILE_DIR, "assets", "icon.png");
+  let image = nativeImage.createFromPath(iconPath);
+  if (!image.isEmpty()) image = image.resize({ width: 16, height: 16 });
+  tray = new Tray(image);
+  tray.setToolTip("Kairos");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "Open Kairos", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+      { type: "separator" },
+      { label: "Quit", click: () => { isQuitting = true; app.quit(); } },
+    ])
+  );
+  tray.on("click", () => { mainWindow?.show(); mainWindow?.focus(); });
+}
+
 ipcMain.handle("dialog:pick-folder", async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
   return result.canceled ? null : result.filePaths[0];
@@ -248,6 +303,7 @@ ipcMain.handle("dialog:pick-folder", async () => {
 app.whenReady().then(() => {
   startBackend();
   createWindow();
+  createTray();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -259,6 +315,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   stopMobile();
   if (backendProcess) {
     backendProcess.kill();

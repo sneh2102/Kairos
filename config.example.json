@@ -85,5 +85,9 @@
   "scheduler": {
     "enabled": false,
     "time": "08:00"
+  },
+  "desktop": {
+    "runInBackground": false,
+    "launchOnStartup": false
   }
 }

@@ -11,6 +11,8 @@ interface Window {
   desktop?: {
     getBackendUrl: () => Promise<string>;
     pickFolder: () => Promise<string | null>;
+    getLaunchOnStartup: () => Promise<boolean>;
+    setLaunchOnStartup: (enabled: boolean) => Promise<void>;
     mobile: {
       start: () => Promise<MobileStatus>;
       stop: () => Promise<MobileStatus>;
