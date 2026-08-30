@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { api } from "../lib/api";
 import type { Config } from "../lib/types";
 
-type Tab = "model" | "api-keys" | "prompts" | "scheduler";
+type Tab = "model" | "api-keys" | "prompts" | "scheduler" | "desktop";
 
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -12,14 +12,30 @@ export default function Settings() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
   useEffect(() => {
-    api.getConfig().then(setConfig);
+    api.getConfig().then(async (c) => {
+      // launchOnStartup is OS state, not just config — read the real value
+      // (e.g. the user could've removed it from Startup Apps directly) so the
+      // checkbox never lies about what will actually happen on next boot.
+      const actual = await window.desktop?.getLaunchOnStartup();
+      if (actual !== undefined) {
+        c.desktop = { runInBackground: false, ...c.desktop, launchOnStartup: actual };
+      }
+      setConfig(c);
+    });
   }, []);
 
   async function save() {
     if (!config) return;
     setSaving(true);
     try {
-      await api.putConfig(config);
+      // api_keys lives in this same config.json but is owned by the API Keys
+      // tab's own save flow (/api/ollama-keys) — `config` here still holds
+      // whatever was in it when Settings first loaded, so sending it back
+      // would clobber a key just added on that tab with the stale snapshot.
+      const payload = { ...config };
+      delete payload.api_keys;
+      await api.putConfig(payload);
+      if (config.desktop) await window.desktop?.setLaunchOnStartup(config.desktop.launchOnStartup);
       setSavedAt(Date.now());
     } finally {
       setSaving(false);
@@ -47,7 +63,7 @@ export default function Settings() {
       </div>
 
       <div className="flex border-b border-border">
-        {(["model", "api-keys", "prompts", "scheduler"] as Tab[]).map((t) => (
+        {(["model", "api-keys", "prompts", "scheduler", "desktop"] as Tab[]).map((t) => (
           <TabButton key={t} active={tab === t} onClick={() => setTab(t)} label={t === "api-keys" ? "API keys" : t} />
         ))}
       </div>
@@ -56,6 +72,7 @@ export default function Settings() {
       {tab === "api-keys" && <ApiKeysTab />}
       {tab === "prompts" && <PromptsTab config={config} setConfig={setConfig} />}
       {tab === "scheduler" && <SchedulerTab config={config} setConfig={setConfig} />}
+      {tab === "desktop" && <DesktopTab config={config} setConfig={setConfig} />}
     </div>
   );
 }
@@ -182,6 +199,36 @@ function SchedulerTab({ config, setConfig }: { config: Config; setConfig: Setter
         Automatically run the scraper every day
       </label>
       <LabeledInput label="Time (24h, local)" value={sched.time} onChange={(v) => set({ time: v })} />
+    </div>
+  );
+}
+
+function DesktopTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
+  const d = config.desktop ?? { runInBackground: false, launchOnStartup: false };
+  const set = (patch: Partial<{ runInBackground: boolean; launchOnStartup: boolean }>) =>
+    setConfig({ ...config, desktop: { ...d, ...patch } });
+  return (
+    <div className="flex flex-col gap-4 max-w-md">
+      <label className="flex items-center gap-2 text-sm text-fg-soft">
+        <input
+          type="checkbox"
+          checked={d.runInBackground}
+          onChange={(e) => set({ runInBackground: e.target.checked })}
+        />
+        Keep running in the background when the window is closed
+      </label>
+      <p className="text-xs text-muted -mt-2">
+        Closing the window minimizes to the system tray instead of quitting, so scraping and other scheduled jobs
+        keep running. Use the tray icon's Quit to fully exit.
+      </p>
+      <label className="flex items-center gap-2 text-sm text-fg-soft">
+        <input
+          type="checkbox"
+          checked={d.launchOnStartup}
+          onChange={(e) => set({ launchOnStartup: e.target.checked })}
+        />
+        Launch Kairos automatically when you log in
+      </label>
     </div>
   );
 }
