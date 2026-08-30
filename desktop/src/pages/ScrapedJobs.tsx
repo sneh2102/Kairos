@@ -246,7 +246,7 @@ function JobTile({ job, onClick }: { job: JobRow; onClick: () => void }) {
       className="card aspect-square p-4 flex flex-col cursor-pointer hover:border-accent/50 transition-colors"
     >
       <div className="flex items-center gap-1.5 flex-wrap">
-        <StatusBadge label={job.ai_recommendation.toUpperCase()} tone={job.ai_recommendation} />
+        <StatusBadge label={(job.ai_recommendation || "?").toUpperCase()} tone={job.ai_recommendation || "maybe"} />
         {job.latex_content && (
           <StatusBadge label={`ATS ${job.ats_score}`} tone={job.ats_score >= 85 ? "pass" : "maybe"} dot={false} />
         )}

@@ -159,8 +159,13 @@ class JobRight(Scraper):
 
         try:
             with sync_playwright() as p:
+                # Always headless: this scraper runs unattended in a
+                # background desktop app, so there is never a human at the
+                # keyboard to complete the Canada SSO login below (it could
+                # only ever burn its full 120s timeout waiting, per search
+                # term, for a click that can't happen — see _do_login).
                 browser = p.chromium.launch(
-                    headless=not (country_code == "CA"),
+                    headless=True,
                     args=["--disable-blink-features=AutomationControlled"],
                 )
                 context = browser.new_context(
@@ -173,12 +178,6 @@ class JobRight(Scraper):
                     locale="en-US",
                 )
                 web_page = context.new_page()
-
-                # ── Login for Canada ──────────────────────────────────
-                if country_code == "CA":
-                    logged_in = self._do_login(web_page)
-                    if not logged_in:
-                        log.warning("JobRight: login failed")
 
                 # ── Navigate to jobs page ─────────────────────────────
                 log.info(f"JobRight Playwright: {url}")
@@ -200,22 +199,33 @@ class JobRight(Scraper):
                         position, len(all_raw), results_wanted
                     )
 
+                    # page.evaluate() has no timeout of its own — if this fetch()
+                    # stalls (dead connection, server never responds), Playwright
+                    # waits for it forever with no way to recover. AbortController
+                    # bounds it so evaluate() always returns.
                     result = web_page.evaluate(f"""
                         async () => {{
                             try {{
-                                const res = await fetch(
-                                    '/swan/recommend/list/jobs?refresh=false&sortCondition=0&position={position}&count={count}&syncRerank=false',
-                                    {{
-                                        method: 'GET',
-                                        headers: {{
-                                            'accept': 'application/json, text/plain, */*',
-                                            'x-requested-with': 'XMLHttpRequest',
-                                        }},
-                                        credentials: 'include',
-                                    }}
-                                );
-                                if (!res.ok) return {{ error: res.status }};
-                                return await res.json();
+                                const controller = new AbortController();
+                                const timer = setTimeout(() => controller.abort(), 15000);
+                                try {{
+                                    const res = await fetch(
+                                        '/swan/recommend/list/jobs?refresh=false&sortCondition=0&position={position}&count={count}&syncRerank=false',
+                                        {{
+                                            method: 'GET',
+                                            headers: {{
+                                                'accept': 'application/json, text/plain, */*',
+                                                'x-requested-with': 'XMLHttpRequest',
+                                            }},
+                                            credentials: 'include',
+                                            signal: controller.signal,
+                                        }}
+                                    );
+                                    if (!res.ok) return {{ error: res.status }};
+                                    return await res.json();
+                                }} finally {{
+                                    clearTimeout(timer);
+                                }}
                             }} catch(e) {{
                                 return {{ error: String(e) }};
                             }}
