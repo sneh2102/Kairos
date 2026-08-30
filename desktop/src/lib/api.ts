@@ -36,6 +36,17 @@ export const api = {
   putOllamaKeys: (keys: string[]) =>
     request<{ saved: boolean }>("/api/ollama-keys", { method: "PUT", body: JSON.stringify({ keys }) }),
 
+  validateOllamaKey: (apiKey: string) =>
+    request<{ valid: boolean; error: string | null }>("/api/validate/ollama-key", {
+      method: "POST",
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  validateGithubToken: (token: string) =>
+    request<{ valid: boolean; error: string | null }>("/api/validate/github-token", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+
   getResumeData: () =>
     request<{
       resume_text: string;

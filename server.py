@@ -23,7 +23,7 @@ from config import CONFIG
 from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
 from graph.scrape_graph import build_scrape_graph
-from llm.client import RotatingOllamaClient
+from llm.client import RotatingOllamaClient, validate_api_key
 from tools import latex, templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -169,6 +169,18 @@ def get_ollama_keys():
 def put_ollama_keys(payload: dict = Body(...)):
     config.save_ollama_keys(payload["keys"])
     return {"saved": True}
+
+
+@app.post("/api/validate/ollama-key")
+def validate_ollama_key_route(payload: dict = Body(...)):
+    valid, error = validate_api_key(payload.get("api_key", ""))
+    return {"valid": valid, "error": error}
+
+
+@app.post("/api/validate/github-token")
+def validate_github_token_route(payload: dict = Body(...)):
+    valid, error = github_importer.validate_token(payload.get("token", ""))
+    return {"valid": valid, "error": error}
 
 
 @app.put("/api/resume-data")
