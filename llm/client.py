@@ -60,7 +60,10 @@ class RotatingOllamaClient:
 
     def _build_client(self) -> Client:
         key = self.api_keys[self.current_index]
-        return Client(host=OLLAMA_HOST, headers={"Authorization": f"Bearer {key}"})
+        # ollama.Client defaults to no timeout at all (httpx waits forever) —
+        # a single stalled request would hang the whole scrape/apply loop with
+        # no exception ever raised for the retry logic below to catch.
+        return Client(host=OLLAMA_HOST, headers={"Authorization": f"Bearer {key}"}, timeout=180)
 
     def _rotate(self):
         self.current_index = (self.current_index + 1) % len(self.api_keys)

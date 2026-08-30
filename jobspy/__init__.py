@@ -121,7 +121,15 @@ def scrape_jobs(
         site_val, scraped_info = scrape_site(site)
         return site_val, scraped_info
 
-    with ThreadPoolExecutor() as executor:
+    # Unbounded here means every configured site launches at once — with
+    # several sites (ZipRecruiter, Glassdoor, JobRight, Google, Naukri,
+    # Wellfound) each spinning up a real Chromium browser via Playwright, a
+    # 10-site config fires up to 6 browsers simultaneously. That's enough
+    # memory/resource pressure to crash one mid-navigation ("Target page,
+    # context or browser has been closed") and, in the worst case, take the
+    # whole backend process down with it. Capping concurrency trades some
+    # wall-clock time for not blowing up the process running it.
+    with ThreadPoolExecutor(max_workers=3) as executor:
         future_to_site = {
             executor.submit(worker, site): site for site in scraper_input.site_type
         }
