@@ -113,8 +113,7 @@ function startBackend() {
       env: {
         ...process.env,
         JOB_HUNTER_DATA_DIR: userData,
-        // Let Playwright use its default cache location (~/.cache/ms-playwright)
-        // instead of trying to use non-existent bundled browsers
+        PLAYWRIGHT_BROWSERS_PATH: path.join(process.resourcesPath, "browsers"),
         TECTONIC_PATH: path.join(process.resourcesPath, "tectonic", "tectonic" + EXE),
         RESUME_ICON_DIR: path.join(process.resourcesPath, "resume-icons"),
         TUNNEL_TOKEN: MOBILE_TOKEN,

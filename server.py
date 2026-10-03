@@ -33,56 +33,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 app = FastAPI(title="Job Scraper backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Playwright browser auto-installation for packaged apps
-_browsers_installing = False
-_browsers_ready = False
-
-def _check_browsers_installed():
-    """Check if Playwright browsers are actually installed."""
-    try:
-        browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-        if not browsers_path:
-            return False
-        # Check for common Chromium locations
-        chromium_paths = [
-            Path(browsers_path) / "chromium-1234" / "chrome-win64" / "chrome.exe",
-            Path(browsers_path) / "chromium_headless_shell-1234" / "chrome-headless-shell-win64" / "chrome-headless-shell.exe",
-            Path(browsers_path) / "firefox-1234" / "firefox-win64" / "firefox.exe",
-        ]
-        return any(p.exists() for p in chromium_paths)
-    except:
-        return False
-
-def _ensure_playwright_browsers():
-    """Install Playwright browsers if not already present."""
-    global _browsers_installing, _browsers_ready
-    if _browsers_installing or _browsers_ready:
-        return
-
-    _browsers_installing = True
-    try:
-        if _check_browsers_installed():
-            _browsers_ready = True
-            return
-
-        logging.info("Installing Playwright browsers (this may take a minute on first run)...")
-        result = subprocess.run(
-            [sys.executable, "-m", "playwright", "install"],
-            capture_output=True,
-            timeout=600
-        )
-        if result.returncode == 0:
-            logging.info("Playwright browsers installed successfully")
-            _browsers_ready = True
-        else:
-            logging.warning(f"Playwright browser installation had issues: {result.stderr.decode()}")
-    except Exception as e:
-        logging.warning(f"Could not auto-install Playwright browsers: {e}. Web scraping may fail.")
-    finally:
-        _browsers_installing = False
-
-# Install browsers SYNCHRONOUSLY on first startup only (subsequent runs are instant)
-_ensure_playwright_browsers()
+# Playwright browsers are bundled with the installer
+# PLAYWRIGHT_BROWSERS_PATH env var (set by Electron) points to bundled location
+# No installation needed - they're pre-downloaded and included in the package
 
 # Public exposure guard: uvicorn stays on 127.0.0.1, so the only way in from
 # outside this PC is the Cloudflare Tunnel. Cloudflare stamps every proxied
