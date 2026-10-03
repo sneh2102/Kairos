@@ -6,6 +6,8 @@ Run: uvicorn server:app --port 8756
 import asyncio
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -30,6 +32,32 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 app = FastAPI(title="Job Scraper backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Ensure Playwright browsers are installed on first run (packaged app compatibility)
+def _ensure_playwright_browsers():
+    """Install Playwright browsers if not already present."""
+    try:
+        browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+        # Check if browsers are already installed
+        if browsers_path and os.path.isdir(browsers_path):
+            # If path exists, assume browsers are installed
+            return
+        # Try to install browsers silently
+        logging.info("Installing Playwright browsers (this may take a minute on first run)...")
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install"],
+            capture_output=True,
+            timeout=600
+        )
+        if result.returncode == 0:
+            logging.info("Playwright browsers installed successfully")
+        else:
+            logging.warning(f"Playwright browser installation had issues: {result.stderr.decode()}")
+    except Exception as e:
+        logging.warning(f"Could not auto-install Playwright browsers: {e}. Web scraping may fail.")
+
+# Run browser installation in background on startup
+threading.Thread(target=_ensure_playwright_browsers, daemon=True).start()
 
 # Public exposure guard: uvicorn stays on 127.0.0.1, so the only way in from
 # outside this PC is the Cloudflare Tunnel. Cloudflare stamps every proxied
