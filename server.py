@@ -33,16 +33,38 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 app = FastAPI(title="Job Scraper backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Ensure Playwright browsers are installed on first run (packaged app compatibility)
-def _ensure_playwright_browsers():
-    """Install Playwright browsers if not already present."""
+# Playwright browser auto-installation for packaged apps
+_browsers_installing = False
+_browsers_ready = False
+
+def _check_browsers_installed():
+    """Check if Playwright browsers are actually installed."""
     try:
         browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-        # Check if browsers are already installed
-        if browsers_path and os.path.isdir(browsers_path):
-            # If path exists, assume browsers are installed
+        if not browsers_path:
+            return False
+        # Check for common Chromium locations
+        chromium_paths = [
+            Path(browsers_path) / "chromium-1234" / "chrome-win64" / "chrome.exe",
+            Path(browsers_path) / "chromium_headless_shell-1234" / "chrome-headless-shell-win64" / "chrome-headless-shell.exe",
+            Path(browsers_path) / "firefox-1234" / "firefox-win64" / "firefox.exe",
+        ]
+        return any(p.exists() for p in chromium_paths)
+    except:
+        return False
+
+def _ensure_playwright_browsers():
+    """Install Playwright browsers if not already present."""
+    global _browsers_installing, _browsers_ready
+    if _browsers_installing or _browsers_ready:
+        return
+
+    _browsers_installing = True
+    try:
+        if _check_browsers_installed():
+            _browsers_ready = True
             return
-        # Try to install browsers silently
+
         logging.info("Installing Playwright browsers (this may take a minute on first run)...")
         result = subprocess.run(
             [sys.executable, "-m", "playwright", "install"],
@@ -51,12 +73,15 @@ def _ensure_playwright_browsers():
         )
         if result.returncode == 0:
             logging.info("Playwright browsers installed successfully")
+            _browsers_ready = True
         else:
             logging.warning(f"Playwright browser installation had issues: {result.stderr.decode()}")
     except Exception as e:
         logging.warning(f"Could not auto-install Playwright browsers: {e}. Web scraping may fail.")
+    finally:
+        _browsers_installing = False
 
-# Run browser installation in background on startup
+# Start browser installation immediately on startup (non-blocking)
 threading.Thread(target=_ensure_playwright_browsers, daemon=True).start()
 
 # Public exposure guard: uvicorn stays on 127.0.0.1, so the only way in from
@@ -697,8 +722,34 @@ def _run_scrape():
     t.start()
 
 
+@app.get("/api/browser-status")
+def get_browser_status():
+    """Check if Playwright browsers are installed and ready."""
+    return {
+        "ready": _browsers_ready,
+        "installing": _browsers_installing,
+        "message": "Browsers ready" if _browsers_ready else "Installing browsers..." if _browsers_installing else "Not started"
+    }
+
 @app.post("/api/scrape/start")
 def start_scrape():
+    """Start scraping - waits for browsers if needed."""
+    # Wait for browsers to be ready (up to 10 minutes)
+    start_time = time.time()
+    timeout = 600  # 10 minutes
+    while not _browsers_ready and (time.time() - start_time) < timeout:
+        if not _browsers_installing:
+            # Browsers aren't ready and aren't being installed, try to install
+            threading.Thread(target=_ensure_playwright_browsers, daemon=True).start()
+        time.sleep(1)
+
+    if not _browsers_ready:
+        raise HTTPException(status_code=503, detail="Playwright browsers not ready. Please wait or reinstall with: playwright install")
+
+    # Continue with original scrape logic
+    return _start_scrape_impl()
+
+def _start_scrape_impl():
     if _is_running("scrape"):
         raise HTTPException(409, "scrape already running")
     _run_scrape()
