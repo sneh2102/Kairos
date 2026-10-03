@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,8 +16,29 @@ DATA_DIR = Path(os.environ.get("JOB_HUNTER_DATA_DIR", ROOT))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _CONFIG_PATH = DATA_DIR / "config.json"
-_CONFIG_EXAMPLE_PATH = ROOT / "config.example.json"
 _ENV_PATH = DATA_DIR / ".env"
+
+# Find config.example.json: in source root or in PyInstaller bundle resources
+def _find_config_example():
+    candidates = [
+        ROOT / "config.example.json",  # source mode
+        Path(ROOT).parent / "config.example.json",  # one level up
+    ]
+    # In PyInstaller bundled app, also check the bundle directory
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        candidates.append(Path(sys._MEIPASS) / "config.example.json")
+    # When launched from Electron in packaged mode, check resources
+    if "JOB_HUNTER_DATA_DIR" in os.environ:
+        # Electron sets JOB_HUNTER_DATA_DIR; the app resources are nearby
+        # For now, assume config.example.json was copied into DATA_DIR or is bundled
+        candidates.insert(0, DATA_DIR / "config.example.json")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]  # return first choice anyway, error will happen on copy
+
+_CONFIG_EXAMPLE_PATH = _find_config_example()
 
 _ENV_PATH.touch(exist_ok=True)
 load_dotenv(_ENV_PATH)
@@ -24,6 +46,11 @@ load_dotenv(_ENV_PATH)
 # config.json is gitignored (holds personal profile/API data) — a fresh clone
 # won't have one, so seed it from the blank template rather than crashing.
 if not _CONFIG_PATH.exists():
+    if not _CONFIG_EXAMPLE_PATH.exists():
+        raise FileNotFoundError(
+            f"config.example.json not found. Searched: {_CONFIG_EXAMPLE_PATH}\n"
+            f"Please ensure config.example.json is bundled with the application."
+        )
     shutil.copy(_CONFIG_EXAMPLE_PATH, _CONFIG_PATH)
 
 with open(_CONFIG_PATH, encoding="utf-8") as f:

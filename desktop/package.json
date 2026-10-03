@@ -30,6 +30,10 @@
         "to": "backend"
       },
       {
+        "from": "../config.example.json",
+        "to": ""
+      },
+      {
         "from": "build-resources/chromium",
         "to": "chromium"
       },
