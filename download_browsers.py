@@ -36,9 +36,9 @@ def download_browsers():
 
     # Check size
     size_mb = sum(f.stat().st_size for f in browsers_dir.rglob("*") if f.is_file()) / (1024 * 1024)
-    print(f"\n✓ Playwright Chromium bundled successfully")
-    print(f"✓ Total size: {size_mb:.0f} MB")
-    print(f"✓ Location: {browsers_dir.resolve()}")
+    print(f"\n[OK] Playwright Chromium bundled successfully")
+    print(f"[OK] Total size: {size_mb:.0f} MB")
+    print(f"[OK] Location: {browsers_dir.resolve()}")
 
     return True
 

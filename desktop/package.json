@@ -34,8 +34,8 @@
         "to": ""
       },
       {
-        "from": "build-resources/chromium",
-        "to": "chromium"
+        "from": "build-resources/browsers",
+        "to": "browsers"
       },
       {
         "from": "build-resources/tectonic",
