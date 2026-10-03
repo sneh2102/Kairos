@@ -132,7 +132,19 @@ def put_config(new_cfg: dict = Body(...)):
 
 @app.get("/api/resume-data")
 def get_resume_data():
-    pcfg = CONFIG["pipeline"]
+    pcfg = CONFIG.get("pipeline", {
+        "resume_path": "resume.txt",
+        "projects_path": "projects.txt",
+        "output_dir": "",
+        "latex_template": "classic",
+        "max_ats_iterations": 5,
+        "ats_pass_threshold": 85,
+        "max_no_improve": 2,
+        "resume_filename": "Resume",
+        "cover_letter_filename": "Cover_Letter",
+        "use_jd_location": True,
+        "default_location": ""
+    })
 
     def safe_load(path: str) -> str:
         try:
@@ -141,9 +153,9 @@ def get_resume_data():
             return ""
 
     return {
-        "resume_text": safe_load(pcfg["resume_path"]),
-        "projects_text": safe_load(pcfg["projects_path"]),
-        "experience_roles": CONFIG["experience_roles"],
+        "resume_text": safe_load(pcfg.get("resume_path", "resume.txt")),
+        "projects_text": safe_load(pcfg.get("projects_path", "projects.txt")),
+        "experience_roles": CONFIG.get("experience_roles", []),
         "custom_sections": CONFIG.get("custom_sections", []),
         "section_order": CONFIG.get("section_order", []),
     }
@@ -185,11 +197,23 @@ def validate_github_token_route(payload: dict = Body(...)):
 
 @app.put("/api/resume-data")
 def put_resume_data(payload: dict = Body(...)):
-    pcfg = CONFIG["pipeline"]
+    pcfg = CONFIG.get("pipeline", {
+        "resume_path": "resume.txt",
+        "projects_path": "projects.txt",
+        "output_dir": "",
+        "latex_template": "classic",
+        "max_ats_iterations": 5,
+        "ats_pass_threshold": 85,
+        "max_no_improve": 2,
+        "resume_filename": "Resume",
+        "cover_letter_filename": "Cover_Letter",
+        "use_jd_location": True,
+        "default_location": ""
+    })
     if "resume_text" in payload:
-        config.save_text_file(pcfg["resume_path"], payload["resume_text"])
+        config.save_text_file(pcfg.get("resume_path", "resume.txt"), payload["resume_text"])
     if "projects_text" in payload:
-        config.save_text_file(pcfg["projects_path"], payload["projects_text"])
+        config.save_text_file(pcfg.get("projects_path", "projects.txt"), payload["projects_text"])
     new_cfg = None
     for key in ("experience_roles", "custom_sections", "section_order"):
         if key in payload:

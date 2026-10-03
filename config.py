@@ -56,6 +56,25 @@ if not _CONFIG_PATH.exists():
 with open(_CONFIG_PATH, encoding="utf-8") as f:
     CONFIG: dict = json.load(f)
 
+# Ensure all required keys exist with defaults (migrations for old configs)
+_DEFAULT_PIPELINE = {
+    "max_ats_iterations": 5,
+    "ats_pass_threshold": 85,
+    "max_no_improve": 2,
+    "output_dir": "",
+    "resume_path": "resume.txt",
+    "projects_path": "projects.txt",
+    "resume_filename": "Resume",
+    "cover_letter_filename": "Cover_Letter",
+    "use_jd_location": True,
+    "default_location": "",
+    "latex_template": "classic"
+}
+
+if "pipeline" not in CONFIG:
+    CONFIG["pipeline"] = _DEFAULT_PIPELINE
+    save_config(CONFIG)
+
 
 def _env_ollama_keys() -> list[str]:
     """Legacy .env fallback: every OLLAMA_API_KEY_1.. in order, plus the bare
