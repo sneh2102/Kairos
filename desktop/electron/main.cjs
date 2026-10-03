@@ -68,19 +68,52 @@ function pythonExe() {
 
 function startBackend() {
   MOBILE_TOKEN = mobileToken();
+  const userData = app.getPath("userData");
+  const logPath = path.join(userData, "app.log");
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+
+  function logToFile(prefix, data) {
+    const timestamp = new Date().toISOString();
+    const message = `[${timestamp}] [${prefix}] ${data}`;
+    process.stdout.write(message);
+    logStream.write(message);
+  }
+
   if (app.isPackaged) {
     // Frozen (PyInstaller) backend + bundled Chromium/Tectonic, laid out by
     // electron-builder's extraResources under resourcesPath. User data
     // (config/resume/db) lives in the OS per-user data dir, never inside the
     // read-only installed app folder.
-    const backendExe = path.join(process.resourcesPath, "backend", "server" + EXE);
+
+    // Try multiple possible paths for the backend executable (handles different bundle layouts)
+    const backendPaths = [
+      path.join(process.resourcesPath, "backend", "server", "server" + EXE),
+      path.join(process.resourcesPath, "backend", "server" + EXE),
+    ];
+
+    let backendExe = null;
+    for (const candidate of backendPaths) {
+      if (fs.existsSync(candidate)) {
+        backendExe = candidate;
+        break;
+      }
+    }
+
+    if (!backendExe) {
+      const errorMsg = `Backend executable not found. Searched:\n${backendPaths.join("\n")}\n\nresourcesPath: ${process.resourcesPath}`;
+      logToFile("error", `${errorMsg}\n`);
+      throw new Error(errorMsg);
+    }
+
+    logToFile("startup", `Starting backend from: ${backendExe}\n`);
+
     backendProcess = spawn(backendExe, [], {
-      cwd: path.dirname(backendExe),
+      cwd: userData,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        JOB_HUNTER_DATA_DIR: app.getPath("userData"),
-        PLAYWRIGHT_BROWSERS_PATH: path.join(process.resourcesPath, "chromium"),
+        JOB_HUNTER_DATA_DIR: userData,
+        PLAYWRIGHT_BROWSERS_PATH: path.join(process.resourcesPath, "browsers"),
         TECTONIC_PATH: path.join(process.resourcesPath, "tectonic", "tectonic" + EXE),
         RESUME_ICON_DIR: path.join(process.resourcesPath, "resume-icons"),
         TUNNEL_TOKEN: MOBILE_TOKEN,
@@ -93,16 +126,36 @@ function startBackend() {
       env: { ...process.env, TUNNEL_TOKEN: MOBILE_TOKEN },
     });
   }
-  backendProcess.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
-  backendProcess.stderr.on("data", (d) => process.stderr.write(`[backend] ${d}`));
+
+  backendProcess.stdout.on("data", (d) => logToFile("backend", d.toString()));
+  backendProcess.stderr.on("data", (d) => logToFile("backend:err", d.toString()));
+  backendProcess.on("error", (err) => {
+    logToFile("error", `Backend spawn error: ${err.message}\n`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showErrorBox(
+        "Backend Error",
+        `Failed to start backend process:\n\n${err.message}`
+      );
+    }
+  });
   backendProcess.on("exit", (code) => {
-    console.log(`Backend exited with code ${code}`);
+    logToFile("backend", `Backend exited with code ${code}\n`);
     backendProcess = null;
+
+    if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showErrorBox(
+        "Application Error",
+        "The backend process crashed. Please restart the application.\n\n" +
+        `Check the log file at: ${logPath}`
+      );
+      mainWindow.close();
+    }
   });
 }
 
 function waitForHealth(timeoutMs = 30000) {
   const start = Date.now();
+  let lastError = null;
   return new Promise((resolve, reject) => {
     const tick = () => {
       http
@@ -110,10 +163,18 @@ function waitForHealth(timeoutMs = 30000) {
           if (res.statusCode === 200) return resolve();
           retry();
         })
-        .on("error", retry);
+        .on("error", (err) => {
+          lastError = err;
+          retry();
+        });
     };
     const retry = () => {
-      if (Date.now() - start > timeoutMs) return reject(new Error("Backend health check timed out"));
+      if (Date.now() - start > timeoutMs) {
+        const msg = lastError
+          ? `Backend health check timed out (${lastError.code}). Backend may have crashed or failed to start.`
+          : `Backend health check timed out after ${timeoutMs}ms. Backend is not responding on port ${BACKEND_PORT}.`;
+        return reject(new Error(msg));
+      }
       setTimeout(tick, 400);
     };
     tick();
@@ -149,7 +210,20 @@ async function createWindow() {
   try {
     await waitForHealth();
   } catch (e) {
-    console.error(e);
+    console.error("Backend health check failed:", e);
+    const logPath = path.join(app.getPath("userData"), "app.log");
+    dialog.showErrorBox(
+      "Backend Failed to Start",
+      `The application backend could not start. This usually means:\n\n` +
+      `• Missing or incorrect API keys in Settings\n` +
+      `• Required Python dependencies are not properly installed\n` +
+      `• Another process is using port ${BACKEND_PORT}\n` +
+      `• Corrupted database or configuration file\n\n` +
+      `Please check the log file at:\n${logPath}\n\n` +
+      `Error: ${e.message}`
+    );
+    mainWindow.close();
+    return;
   }
 
   if (isDev) {
@@ -298,10 +372,17 @@ ipcMain.handle("dialog:pick-folder", async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-app.whenReady().then(() => {
-  startBackend();
-  createWindow();
-  createTray();
+app.whenReady().then(async () => {
+  try {
+    startBackend();
+    await createWindow();
+    createTray();
+  } catch (err) {
+    console.error("Failed to start application:", err);
+    dialog.showErrorBox("Startup Error", `Failed to start application: ${err.message}`);
+    app.quit();
+    return;
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
