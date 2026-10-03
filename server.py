@@ -81,8 +81,8 @@ def _ensure_playwright_browsers():
     finally:
         _browsers_installing = False
 
-# Start browser installation immediately on startup (non-blocking)
-threading.Thread(target=_ensure_playwright_browsers, daemon=True).start()
+# Install browsers SYNCHRONOUSLY on first startup only (subsequent runs are instant)
+_ensure_playwright_browsers()
 
 # Public exposure guard: uvicorn stays on 127.0.0.1, so the only way in from
 # outside this PC is the Cloudflare Tunnel. Cloudflare stamps every proxied
@@ -722,34 +722,8 @@ def _run_scrape():
     t.start()
 
 
-@app.get("/api/browser-status")
-def get_browser_status():
-    """Check if Playwright browsers are installed and ready."""
-    return {
-        "ready": _browsers_ready,
-        "installing": _browsers_installing,
-        "message": "Browsers ready" if _browsers_ready else "Installing browsers..." if _browsers_installing else "Not started"
-    }
-
 @app.post("/api/scrape/start")
 def start_scrape():
-    """Start scraping - waits for browsers if needed."""
-    # Wait for browsers to be ready (up to 10 minutes)
-    start_time = time.time()
-    timeout = 600  # 10 minutes
-    while not _browsers_ready and (time.time() - start_time) < timeout:
-        if not _browsers_installing:
-            # Browsers aren't ready and aren't being installed, try to install
-            threading.Thread(target=_ensure_playwright_browsers, daemon=True).start()
-        time.sleep(1)
-
-    if not _browsers_ready:
-        raise HTTPException(status_code=503, detail="Playwright browsers not ready. Please wait or reinstall with: playwright install")
-
-    # Continue with original scrape logic
-    return _start_scrape_impl()
-
-def _start_scrape_impl():
     if _is_running("scrape"):
         raise HTTPException(409, "scrape already running")
     _run_scrape()
