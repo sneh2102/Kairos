@@ -84,14 +84,28 @@ function startBackend() {
     // electron-builder's extraResources under resourcesPath. User data
     // (config/resume/db) lives in the OS per-user data dir, never inside the
     // read-only installed app folder.
-    const backendExe = path.join(process.resourcesPath, "backend", "server", "server" + EXE);
-    logToFile("startup", `Starting backend from: ${backendExe}\n`);
 
-    if (!fs.existsSync(backendExe)) {
-      const errorMsg = `Backend executable not found at ${backendExe}`;
+    // Try multiple possible paths for the backend executable (handles different bundle layouts)
+    const backendPaths = [
+      path.join(process.resourcesPath, "backend", "server", "server" + EXE),
+      path.join(process.resourcesPath, "backend", "server" + EXE),
+    ];
+
+    let backendExe = null;
+    for (const candidate of backendPaths) {
+      if (fs.existsSync(candidate)) {
+        backendExe = candidate;
+        break;
+      }
+    }
+
+    if (!backendExe) {
+      const errorMsg = `Backend executable not found. Searched:\n${backendPaths.join("\n")}\n\nresourcesPath: ${process.resourcesPath}`;
       logToFile("error", `${errorMsg}\n`);
       throw new Error(errorMsg);
     }
+
+    logToFile("startup", `Starting backend from: ${backendExe}\n`);
 
     backendProcess = spawn(backendExe, [], {
       cwd: userData,

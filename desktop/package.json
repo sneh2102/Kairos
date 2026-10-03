@@ -61,7 +61,16 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "certificateFile": null,
+      "certificatePassword": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kairos"
     },
     "mac": {
       "target": "dmg",
