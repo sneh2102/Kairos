@@ -90,6 +90,125 @@ export default function Mobile() {
           </p>
         )}
       </div>
+
+      <WebAccess />
+    </div>
+  );
+}
+
+const WEB_STEPS: Record<WebBridgeStatus["phase"], string> = {
+  idle: "Not running",
+  starting: "Opening Cloudflare tunnel to your backend…",
+  ready: "Ready — enter this link and password on the web app's Connect screen",
+  error: "Something went wrong",
+};
+
+function WebAccess() {
+  const bridge = window.desktop?.web;
+  const [status, setStatus] = useState<WebBridgeStatus>({ phase: "idle", url: null, error: null });
+  const [token, setToken] = useState<string | null>(null);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [copied, setCopied] = useState<"url" | "password" | null>(null);
+
+  useEffect(() => {
+    if (!bridge) return;
+    bridge.status().then(setStatus);
+    bridge.token().then((t) => {
+      setToken(t);
+      setPasswordInput(t);
+    });
+    return bridge.onStatus(setStatus);
+  }, [bridge]);
+
+  if (!bridge) return null;
+
+  const busy = status.phase === "starting";
+  const running = busy || status.phase === "ready";
+
+  function copy(kind: "url" | "password", value: string) {
+    navigator.clipboard.writeText(value);
+    setCopied(kind);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  async function savePassword() {
+    const next = passwordInput.trim();
+    if (!next) return;
+    const saved = await bridge!.setToken(next);
+    setToken(saved);
+    setPasswordSaved(true);
+    setTimeout(() => setPasswordSaved(false), 1500);
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-surface p-5 flex flex-col gap-4">
+      <div>
+        <h2 className="text-sm font-semibold text-fg">Web access</h2>
+        <p className="text-xs text-muted mt-1">
+          Use Kairos from a browser on any other computer. Start this, then enter the link and password on that
+          computer's Connect screen.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              status.phase === "ready" ? "bg-good" : status.phase === "error" ? "bg-bad" : busy ? "bg-accent animate-pulse" : "bg-muted"
+            }`}
+          />
+          <span className="text-sm text-fg">{WEB_STEPS[status.phase]}</span>
+        </div>
+        {running ? (
+          <button onClick={() => bridge.stop()} className="rounded-full px-4 py-2 text-sm border border-border text-fg-soft hover:bg-subtle">
+            Stop
+          </button>
+        ) : (
+          <button onClick={() => bridge.start()} className="rounded-full px-4 py-2 text-sm bg-accent text-on-accent font-medium hover:opacity-90">
+            Start web access
+          </button>
+        )}
+      </div>
+
+      {status.phase === "error" && status.error && <div className="rounded-lg bg-bad/10 text-bad text-sm px-3 py-2">{status.error}</div>}
+
+      {status.url && <FieldRow label="Link" value={status.url} copied={copied === "url"} onCopy={() => copy("url", status.url!)} />}
+
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted w-16 shrink-0">Password</span>
+        <input
+          className="input flex-1 text-xs"
+          value={passwordInput}
+          onChange={(e) => setPasswordInput(e.target.value)}
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+        <button onClick={savePassword} disabled={!passwordInput.trim() || passwordInput.trim() === token} className="btn-secondary text-xs shrink-0">
+          {passwordSaved ? "Saved" : "Save"}
+        </button>
+        {token && (
+          <button onClick={() => copy("password", token)} className="btn-ghost text-xs shrink-0">
+            {copied === "password" ? "Copied" : "Copy"}
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-muted -mt-2">
+        Changing this takes effect immediately, no need to stop/restart web access — but re-enter it on any browser
+        already connected.
+      </p>
+    </div>
+  );
+}
+
+function FieldRow({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-muted w-16 shrink-0">{label}</span>
+      <code className="text-xs text-fg-soft break-all flex-1">{value}</code>
+      <button onClick={onCopy} className="btn-ghost text-xs shrink-0">
+        {copied ? "Copied" : "Copy"}
+      </button>
     </div>
   );
 }

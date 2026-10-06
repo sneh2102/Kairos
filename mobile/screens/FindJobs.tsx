@@ -16,6 +16,8 @@ const SITES = [
   { value: "bdjobs", label: "BDJobs" },
   { value: "jobright", label: "JobRight" },
   { value: "wellfound", label: "Wellfound" },
+  { value: "hiringcafe", label: "HiringCafe" },
+  { value: "greenhouse", label: "Greenhouse" },
 ];
 
 export default function FindJobs() {
@@ -76,6 +78,7 @@ export default function FindJobs() {
         <TextField label="Search terms (one per line)" value={sc.search_terms} onChangeText={(v) => setSc({ search_terms: v })} multiline />
         <TextField label="Location" value={sc.location} onChangeText={(v) => setSc({ location: v })} />
         <TextField label="Country (for Indeed — e.g. canada, usa, uk)" value={sc.country_indeed} onChangeText={(v) => setSc({ country_indeed: v })} autoCapitalize="none" />
+        {selectedSites.includes("greenhouse") && <GreenhouseStatus />}
         <View style={st.two}>
           <View style={{ flex: 1 }}>
             <TextField label="Hours old" value={String(sc.hours_old)} onChangeText={(v) => setSc({ hours_old: Number(v) || 0 })} keyboardType="number-pad" />
@@ -114,6 +117,21 @@ export default function FindJobs() {
         )}
       </Card>
     </Screen>
+  );
+}
+
+function GreenhouseStatus() {
+  const [status, setStatus] = useState<{ connected: boolean } | null>(null);
+  useEffect(() => {
+    api.greenhouseStatus().then(setStatus).catch(() => {});
+  }, []);
+  return (
+    <View style={{ marginTop: 4, marginBottom: 12, gap: 6 }}>
+      <Text style={st.muted}>
+        Greenhouse needs a one-time login done from the desktop app (it opens a browser there).
+      </Text>
+      {status && <Badge label={status.connected ? "Connected" : "Not connected yet"} color={status.connected ? C.green : C.muted} />}
+    </View>
   );
 }
 

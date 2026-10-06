@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { api } from "../lib/api";
 import type { Config } from "../lib/types";
-import { Btn, C, Loading, NumField, Screen, SectionLabel, Tabs, TextField, ToggleRow } from "../ui";
+import { Badge, Btn, C, Loading, NumField, Screen, SectionLabel, Tabs, TextField, ToggleRow } from "../ui";
 
 const TABS = [
   { key: "model", label: "Model" },
   { key: "keys", label: "API keys" },
   { key: "prompt", label: "Screener prompt" },
   { key: "scheduler", label: "Scheduler" },
+  { key: "drive", label: "Google Drive" },
 ];
 
 export default function Settings() {
@@ -32,7 +33,10 @@ export default function Settings() {
       {tab === "keys" && <KeysTab />}
       {tab === "prompt" && <PromptTab config={config} setConfig={setConfig} />}
       {tab === "scheduler" && <SchedulerTab config={config} setConfig={setConfig} />}
-      {tab !== "keys" && <Btn label={saving ? "Saving…" : "Save changes"} variant="primary" disabled={saving} onPress={save} style={{ marginTop: 18 }} />}
+      {tab === "drive" && <DriveTab />}
+      {tab !== "keys" && tab !== "drive" && (
+        <Btn label={saving ? "Saving…" : "Save changes"} variant="primary" disabled={saving} onPress={save} style={{ marginTop: 18 }} />
+      )}
     </Screen>
   );
 }
@@ -105,6 +109,28 @@ function SchedulerTab({ config, setConfig }: { config: Config; setConfig: (c: Co
       <SectionLabel>Daily scrape</SectionLabel>
       <ToggleRow label="Run the scraper automatically every day" value={sched.enabled} onValueChange={(v) => set({ enabled: v })} />
       <TextField label="Time (24h, local)" value={sched.time} onChangeText={(v) => set({ time: v })} placeholder="08:00" />
+    </View>
+  );
+}
+
+function DriveTab() {
+  const [status, setStatus] = useState<{ configured: boolean; connected: boolean; email: string } | null>(null);
+  const refresh = () => { api.googleStatus().then(setStatus); };
+  useEffect(refresh, []);
+
+  return (
+    <View style={{ marginTop: 12, gap: 12 }}>
+      <Text style={st.hint}>
+        Connecting Google Drive is a one-time setup done from the desktop app (it needs a browser on that machine).
+        Once connected there, "Upload to Drive" works from a job or application here too — same backend.
+      </Text>
+      {status && (
+        <Badge
+          label={status.connected ? `Connected as ${status.email}` : status.configured ? "Not connected yet" : "Not set up"}
+          color={status.connected ? C.green : C.muted}
+        />
+      )}
+      <Btn label="Refresh status" variant="secondary" onPress={refresh} />
     </View>
   );
 }

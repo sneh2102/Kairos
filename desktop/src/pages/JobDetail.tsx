@@ -12,6 +12,7 @@ export default function JobDetail() {
   const [job, setJob] = useState<JobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const { applyProgress } = useEventStream();
 
   function load() {
@@ -39,10 +40,10 @@ export default function JobDetail() {
     }
   }
 
-  async function build() {
+  async function build(engine: "default" | "claude" = "default") {
     setBusy("build");
     try {
-      await api.buildJob(jobId);
+      await api.buildJob(jobId, engine);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -64,6 +65,19 @@ export default function JobDetail() {
   async function remove() {
     await api.deleteJob(jobId);
     navigate(-1);
+  }
+
+  async function uploadToDrive() {
+    setBusy("drive");
+    setError(null);
+    try {
+      await api.uploadJobToDrive(jobId);
+      setDriveMsg("Uploaded to Google Drive.");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
   }
 
   const hasResume = !!job.latex_content;
@@ -141,19 +155,37 @@ export default function JobDetail() {
         </div>
 
         <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-          <button className="btn-secondary" onClick={build} disabled={busy === "build" || !!building}>
+          <button className="btn-secondary" onClick={() => build()} disabled={busy === "build" || !!building}>
             {building ? `Building… (${progress?.stage})` : hasResume ? "Rebuild resume & cover letter" : "Build resume & cover letter"}
+          </button>
+          <button className="btn-secondary" onClick={() => build("claude")} disabled={busy === "build" || !!building}
+                  title="Resume sections + cover letter written by Claude (uses your Claude subscription)">
+            Build with Claude
           </button>
           <button className="btn-secondary" onClick={() => navigate(`/jobs/${jobId}/editor`)} disabled={!hasResume}>
             Open in LaTeX editor
           </button>
+          {hasResume && (
+            <>
+              <a href={api.jobResumePdfUrl(jobId)} download className="btn-secondary">
+                Download resume
+              </a>
+              <a href={api.jobCoverPdfUrl(jobId)} download className="btn-secondary">
+                Download cover letter
+              </a>
+            </>
+          )}
           <button className="btn-primary" onClick={markApplied} disabled={busy === "apply"}>
             Mark applied
+          </button>
+          <button className="btn-secondary" onClick={uploadToDrive} disabled={!hasResume || busy === "drive"}>
+            {busy === "drive" ? "Uploading…" : "Upload to Drive"}
           </button>
           <button className="btn-danger ml-auto" onClick={remove}>
             Delete
           </button>
         </div>
+        {driveMsg && <div className="text-xs text-yes">{driveMsg}</div>}
         {progress && typeof progress.score === "number" && (
           <div className="text-xs text-muted">Latest ATS score: {progress.score} (iteration {progress.iteration})</div>
         )}

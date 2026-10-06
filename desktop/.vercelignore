@@ -1,0 +1,4 @@
+# Electron-only build artifacts — irrelevant to the web build, and way over
+# Vercel's 100MB per-file upload limit (bundled Chromium, installers).
+build-resources
+release

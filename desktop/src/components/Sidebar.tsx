@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { clearBackendConfig, isElectron } from "../lib/api";
 import { useEventStream } from "../lib/eventStream";
 import ThemeToggle from "./ThemeToggle";
 
@@ -13,6 +14,7 @@ const WORKFLOW = [
 
 const SETUP = [
   { to: "/resume-data", label: "Resume & profile" },
+  { to: "/designer", label: "Resume designer" },
   { to: "/templates", label: "Formats" },
   { to: "/screener-config", label: "Screening rules" },
   { to: "/prompts", label: "AI prompts" },
@@ -80,6 +82,17 @@ export default function Sidebar() {
           ))}
         </Group>
       </div>
+
+      {!isElectron && (
+        <div className="border-t border-border px-4 py-2.5 flex items-center justify-between">
+          <NavLink to="/resume-data" className="text-[12px] text-fg-soft hover:text-fg hover:underline">
+            Profile
+          </NavLink>
+          <button onClick={() => clearBackendConfig()} className="text-[12px] text-no hover:underline">
+            Logout
+          </button>
+        </div>
+      )}
 
       <div className="border-t border-border px-4 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2" title={connected ? "Backend connected" : "Backend not reachable"}>

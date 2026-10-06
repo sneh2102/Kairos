@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { api } from "../lib/api";
 import type { Config } from "../lib/types";
 
-type Tab = "model" | "api-keys" | "prompts" | "scheduler";
+type Tab = "model" | "api-keys" | "prompts" | "scheduler" | "google-drive";
 
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -47,8 +47,13 @@ export default function Settings() {
       </div>
 
       <div className="flex border-b border-border">
-        {(["model", "api-keys", "prompts", "scheduler"] as Tab[]).map((t) => (
-          <TabButton key={t} active={tab === t} onClick={() => setTab(t)} label={t === "api-keys" ? "API keys" : t} />
+        {(["model", "api-keys", "prompts", "scheduler", "google-drive"] as Tab[]).map((t) => (
+          <TabButton
+            key={t}
+            active={tab === t}
+            onClick={() => setTab(t)}
+            label={t === "api-keys" ? "API keys" : t === "google-drive" ? "Google Drive" : t}
+          />
         ))}
       </div>
 
@@ -56,6 +61,7 @@ export default function Settings() {
       {tab === "api-keys" && <ApiKeysTab />}
       {tab === "prompts" && <PromptsTab config={config} setConfig={setConfig} />}
       {tab === "scheduler" && <SchedulerTab config={config} setConfig={setConfig} />}
+      {tab === "google-drive" && <GoogleDriveTab config={config} setConfig={setConfig} save={save} saving={saving} />}
     </div>
   );
 }
@@ -82,6 +88,104 @@ function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) 
           onChange={(v) => setConfig({ ...config, github: { token: v } })}
         />
       </div>
+    </div>
+  );
+}
+
+function GoogleDriveTab({
+  config,
+  setConfig,
+  save,
+  saving,
+}: {
+  config: Config;
+  setConfig: Setter;
+  save: () => void;
+  saving: boolean;
+}) {
+  const g = config.google ?? { client_id: "", client_secret: "" };
+  const [status, setStatus] = useState<{ configured: boolean; connected: boolean; email: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  function refreshStatus() {
+    api.googleStatus().then(setStatus);
+  }
+  useEffect(refreshStatus, []);
+
+  async function connect() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.googleConnect();
+      setMessage("A browser window opened to finish signing in — once approved, click \"Refresh status\" below.");
+    } catch (e) {
+      setMessage(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    try {
+      await api.googleDisconnect();
+      refreshStatus();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 max-w-2xl">
+      <p className="text-xs text-muted">
+        Connects your own Google account so "Upload to Drive" (on a job or applied record) can save the built
+        resume/cover-letter PDFs into a "Job Tracker Resumes" folder in your Drive. This is a one-time setup done
+        from the desktop app — the connection then works for uploads triggered from mobile too, since both talk to
+        this same backend.
+      </p>
+
+      <div className="card p-3 text-xs text-muted space-y-1">
+        <div className="text-fg-soft font-medium">One-time Google Cloud setup (only if you haven't already):</div>
+        <ol className="list-decimal list-inside space-y-0.5">
+          <li>Create a project at console.cloud.google.com and enable the "Google Drive API".</li>
+          <li>Configure the OAuth consent screen (External, testing mode is fine — add your own email as a test user).</li>
+          <li>
+            Create an OAuth client ID of type <strong className="text-fg-soft">Desktop app</strong>.
+          </li>
+          <li>Copy its Client ID and Client secret into the fields below and save.</li>
+        </ol>
+      </div>
+
+      <LabeledInput label="Client ID" value={g.client_id} onChange={(v) => setConfig({ ...config, google: { ...g, client_id: v } })} />
+      <LabeledInput
+        label="Client secret"
+        value={g.client_secret}
+        onChange={(v) => setConfig({ ...config, google: { ...g, client_secret: v } })}
+      />
+      <button className="btn-secondary w-fit" onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save credentials"}
+      </button>
+
+      <div className="pt-2 border-t border-border flex items-center gap-3">
+        {status?.connected ? (
+          <>
+            <span className="text-sm text-yes">Connected as {status.email}</span>
+            <button className="btn-secondary" onClick={disconnect} disabled={busy}>
+              Disconnect
+            </button>
+          </>
+        ) : (
+          <button className="btn-primary" onClick={connect} disabled={busy || !status?.configured}>
+            {busy ? "Opening browser…" : "Connect Google Drive"}
+          </button>
+        )}
+        <button className="btn-ghost text-xs" onClick={refreshStatus}>
+          Refresh status
+        </button>
+      </div>
+      {!status?.configured && <p className="text-xs text-muted">Save a Client ID/secret above before connecting.</p>}
+      {message && <p className="text-xs text-fg-soft">{message}</p>}
     </div>
   );
 }

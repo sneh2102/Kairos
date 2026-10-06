@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { api } from "../lib/api";
+import { api, shareJobsCsv } from "../lib/api";
 import type { JobRow } from "../lib/types";
 import { Badge, Btn, C, Chip, Screen, TextField, ToggleRow, scoreColor, useNav } from "../ui";
 
@@ -62,6 +62,11 @@ export default function ReviewJobs() {
     return rows;
   }, [jobs, site, province, resumeOnly, sortYears]);
 
+  const exportCsv = () => {
+    if (visible.length === 0) return;
+    shareJobsCsv(visible, `jobs-${filter}-${new Date().toISOString().slice(0, 10)}`).catch((e) => Alert.alert("Export failed", String(e)));
+  };
+
   const cleanup = () => {
     const act = (fn: () => Promise<{ removed: number }>, msg: string) =>
       Alert.alert("Confirm", msg, [
@@ -96,6 +101,7 @@ export default function ReviewJobs() {
       <View style={st.filterRow}>
         <Chip label={sortYears === "asc" ? "Years ↑" : sortYears === "desc" ? "Years ↓" : "Sort: default"} active={!!sortYears} onPress={() => setSortYears(sortYears === "" ? "asc" : sortYears === "asc" ? "desc" : "")} />
         <Chip label="Resume generated" active={resumeOnly} onPress={() => setResumeOnly(!resumeOnly)} />
+        <Chip label="Export CSV" onPress={exportCsv} />
         <Chip label="Clean up" onPress={cleanup} />
       </View>
     </View>

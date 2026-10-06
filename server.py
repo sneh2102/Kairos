@@ -9,12 +9,13 @@ import os
 import threading
 import time
 import uuid
+import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 import config
 from agents import (custom_section_writer, experience_writer, github_importer, project_writer,
@@ -24,7 +25,7 @@ from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
 from graph.scrape_graph import build_scrape_graph
 from llm.client import RotatingOllamaClient
-from tools import latex, templates
+from tools import designer, google_drive, latex, templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -38,14 +39,33 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # untouched. Set TUNNEL_TOKEN in .env to enable; unset = gate off (LAN dev).
 # ponytail: /ws/events stays ungated — it only emits scrape progress, can't
 # mutate anything; add a query-param token check if that WS ever carries secrets.
-TUNNEL_TOKEN = os.environ.get("TUNNEL_TOKEN")
+TUNNEL_TOKEN_FILE = os.environ.get("TUNNEL_TOKEN_FILE")
+
+
+def current_tunnel_token():
+    # Re-read on every call (not cached) so the desktop app's "change
+    # password" button takes effect immediately, no backend restart needed.
+    if TUNNEL_TOKEN_FILE:
+        try:
+            return Path(TUNNEL_TOKEN_FILE).read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+    return os.environ.get("TUNNEL_TOKEN")
 
 
 @app.middleware("http")
 async def require_tunnel_token(request: Request, call_next):
     via_tunnel = "cf-connecting-ip" in request.headers
-    if via_tunnel and request.url.path != "/api/health":
-        if not TUNNEL_TOKEN or request.headers.get("x-api-token") != TUNNEL_TOKEN:
+    # Browser CORS preflight (OPTIONS) never carries the custom x-api-token
+    # header — that's normal, not an unauthorized caller — so let it through
+    # to CORSMiddleware, which answers it. The real request right behind it
+    # still gets checked.
+    if via_tunnel and request.method != "OPTIONS" and request.url.path != "/api/health":
+        # Header for normal fetch()/XHR calls; query param for plain <embed>/<a>
+        # links (PDF previews) that can't set custom headers.
+        token = request.headers.get("x-api-token") or request.query_params.get("token")
+        expected = current_tunnel_token()
+        if not expected or token != expected:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -126,8 +146,127 @@ def put_config(new_cfg: dict = Body(...)):
     # wipe api_keys on a full-config save — always preserve them if omitted.
     if "api_keys" not in new_cfg:
         new_cfg["api_keys"] = CONFIG.get("api_keys", [])
+    # Settings only edits google.client_id/client_secret — the OAuth tokens
+    # are server-managed (set by /api/google/callback) and must survive a
+    # save made from a client that fetched config before connecting.
+    existing_google = CONFIG.get("google", {})
+    new_google = new_cfg.get("google") or {}
+    new_cfg["google"] = {
+        "client_id": new_google.get("client_id", existing_google.get("client_id", "")),
+        "client_secret": new_google.get("client_secret", existing_google.get("client_secret", "")),
+        "refresh_token": existing_google.get("refresh_token", ""),
+        "connected_email": existing_google.get("connected_email", ""),
+        "folder_id": existing_google.get("folder_id", ""),
+    }
+    # greenhouse_cookie is likewise server-managed (set by /api/greenhouse/connect) —
+    # a client's config, fetched before a connect finished, would otherwise wipe it.
+    new_scraper = new_cfg.get("scraper") or {}
+    new_scraper["greenhouse_cookie"] = CONFIG.get("scraper", {}).get("greenhouse_cookie", "")
+    new_cfg["scraper"] = new_scraper
     config.save_config(new_cfg)
     return {"saved": True}
+
+
+@app.get("/api/google/status")
+def google_status():
+    g = CONFIG.get("google", {})
+    return {
+        "configured": google_drive.is_configured(),
+        "connected": google_drive.is_connected(),
+        "email": g.get("connected_email", ""),
+    }
+
+
+@app.post("/api/google/connect")
+def google_connect():
+    try:
+        url = google_drive.start_auth()
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
+    return {"auth_url": url}
+
+
+@app.get("/api/google/callback")
+def google_callback(code: str = "", state: str = "", error: str = ""):
+    if error:
+        return HTMLResponse(f"<h3>Google sign-in failed: {error}</h3><p>Close this tab and try again.</p>")
+    try:
+        email = google_drive.finish_auth(code, state)
+    except Exception as e:
+        return HTMLResponse(f"<h3>Connection failed</h3><p>{e}</p>")
+    return HTMLResponse(f"<h3>Connected to Google Drive as {email}</h3><p>You can close this tab and go back to the app.</p>")
+
+
+@app.post("/api/google/disconnect")
+def google_disconnect():
+    google_drive.disconnect()
+    return {"disconnected": True}
+
+
+@app.get("/api/greenhouse/status")
+def greenhouse_status():
+    return {"connected": bool(CONFIG.get("scraper", {}).get("greenhouse_cookie"))}
+
+
+@app.post("/api/greenhouse/connect")
+def greenhouse_connect():
+    # Opens a real browser window on this machine for the user to log into
+    # my.greenhouse.io in; blocks (in FastAPI's threadpool, not the event
+    # loop) until that finishes, times out, or fails.
+    from jobspy.greenhouse.cookie_fetcher import get_greenhouse_cookie
+
+    profile_dir = config.DATA_DIR / ".greenhouse_browser_profile"
+    try:
+        cookie = get_greenhouse_cookie(profile_dir=str(profile_dir))
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    CONFIG.setdefault("scraper", {})["greenhouse_cookie"] = cookie
+    config.save_config(CONFIG)
+    return {"connected": True}
+
+
+@app.post("/api/greenhouse/disconnect")
+def greenhouse_disconnect():
+    CONFIG.setdefault("scraper", {})["greenhouse_cookie"] = ""
+    config.save_config(CONFIG)
+    return {"disconnected": True}
+
+
+def _upload_row_to_drive(row: dict, prefix: str) -> dict:
+    if not google_drive.is_connected():
+        raise HTTPException(400, "Connect Google Drive in Settings first.")
+    links = {}
+    resume_path = row.get("resume_path")
+    if resume_path and Path(resume_path).exists():
+        links["resume_link"] = google_drive.upload_pdf(resume_path, f"{prefix} - Resume.pdf")
+    cover_path = row.get("cover_path")
+    if cover_path and Path(cover_path).exists():
+        links["cover_link"] = google_drive.upload_pdf(cover_path, f"{prefix} - Cover Letter.pdf")
+    if not links:
+        raise HTTPException(404, "No built PDFs for this record yet.")
+    return links
+
+
+@app.post("/api/jobs/{job_id}/upload-to-drive")
+def upload_job_to_drive(job_id: int):
+    job = jobs_db.get_by_id(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    prefix = f"{latex.sanitize_folder_name(job['company'])}_{latex.sanitize_folder_name(job['title'])}"
+    return _upload_row_to_drive(job, prefix)
+
+
+@app.post("/api/applied/{applied_id}/upload-to-drive")
+def upload_applied_to_drive(applied_id: int):
+    row = applied_db.get_by_id(applied_id)
+    if not row:
+        raise HTTPException(404, "application not found")
+    prefix = f"{latex.sanitize_folder_name(row['company'])}_{latex.sanitize_folder_name(row['title'])}"
+    return _upload_row_to_drive(row, prefix)
 
 
 @app.get("/api/resume-data")
@@ -283,6 +422,28 @@ def template_preview(template_id: str):
     return FileResponse(pdf, media_type="application/pdf")
 
 
+# ---- visual resume designer -------------------------------------------------
+
+@app.get("/api/layout")
+def get_layout():
+    return designer.get_layout()
+
+
+@app.put("/api/layout")
+def put_layout(payload: dict = Body(...)):
+    """Saves style + section list/order/visibility and activates the generated template."""
+    return designer.save_layout(payload)
+
+
+@app.post("/api/layout/preview")
+def layout_preview(payload: dict = Body(...)):
+    """Compiles an UNSAVED layout draft so the designer can show changes live."""
+    pdf, error = designer.preview(payload)
+    if pdf is None:
+        raise HTTPException(422, error or "preview compile failed")
+    return FileResponse(pdf, media_type="application/pdf")
+
+
 # ---- GitHub project importer ------------------------------------------------
 
 @app.get("/api/github/repos")
@@ -408,13 +569,13 @@ def apply_job(job_id: int):
 
 
 @app.post("/api/jobs/{job_id}/build")
-def build_one_job(job_id: int):
+def build_one_job(job_id: int, payload: dict = Body(default={})):
     if _is_running("apply"):
         raise HTTPException(409, "a build is already running")
     job = jobs_db.get_by_id(job_id)
     if not job:
         raise HTTPException(404, "job not found")
-    _run_apply([job])
+    _run_apply([job], use_claude=payload.get("engine") == "claude")
     return {"started": True}
 
 
@@ -454,7 +615,7 @@ def rebuildable_sections():
     core = [{"id": "skills", "name": "Skills"}, {"id": "experience", "name": "Experience"},
             {"id": "projects", "name": "Projects"}]
     custom = [{"id": s["id"], "name": s.get("name", s["id"])}
-              for s in CONFIG.get("custom_sections", []) if s.get("id")]
+              for s in CONFIG.get("custom_sections", []) if s.get("id") and s.get("kind") != "static"]
     return core + custom
 
 
@@ -502,7 +663,8 @@ def rebuild_section(job_id: int, payload: dict = Body(...)):
             projects_text = config.load_text_file(pcfg["projects_path"])
             block = (project_writer.rebuild(client, title, company, description, message, prior, projects_text)
                      if message and prior else
-                     project_writer.write(client, title, company, description, existing_resume, projects_text))
+                     project_writer.write(client, title, company, description, existing_resume, projects_text,
+                                           bullets=pcfg.get("project_bullets", 3)))
         elif section_id in custom:
             block = custom_section_writer.write(
                 client, custom[section_id], profile.get("full_name", ""), title, company, description,
@@ -649,13 +811,13 @@ def stop_scrape():
     return {"stopping": True}
 
 
-def _run_apply(jobs: list[dict]):
+def _run_apply(jobs: list[dict], use_claude: bool = False):
     stop_event = threading.Event()
     RUNNERS["apply"]["stop_event"] = stop_event
 
     def work():
         try:
-            graph = build_apply_graph(emit=broadcaster.emit, stop_event=stop_event)
+            graph = build_apply_graph(emit=broadcaster.emit, stop_event=stop_event, use_claude=use_claude)
             initial_state = {
                 "jobs": jobs, "job_index": 0, "current_job": {}, "cover_letter": "",
                 "sections": {}, "ats_score": 0, "ats_feedback": {}, "ats_iteration": 0,

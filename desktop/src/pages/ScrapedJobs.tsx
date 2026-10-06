@@ -35,6 +35,18 @@ function yearsOf(years: string): number {
   return m ? parseFloat(m[0]) : -1;
 }
 
+function exportCsv(jobs: JobRow[], filename: string) {
+  const cols = Object.keys(jobs[0]) as (keyof JobRow)[];
+  const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const csv = [cols.join(","), ...jobs.map((j) => cols.map((c) => escape(j[c])).join(","))].join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ScrapedJobs() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [jobs, setJobs] = useState<JobRow[]>([]);
@@ -147,6 +159,13 @@ export default function ScrapedJobs() {
             Refresh
           </button>
           <CleanupMenu open={cleanupOpen} setOpen={setCleanupOpen} onPick={runCleanup} />
+          <button
+            className="btn-secondary"
+            disabled={visible.length === 0}
+            onClick={() => exportCsv(visible, `jobs-${filter}-${new Date().toISOString().slice(0, 10)}.csv`)}
+          >
+            Export CSV
+          </button>
           <button className="btn-primary" onClick={() => setShowAdd(true)}>
             Add job
           </button>

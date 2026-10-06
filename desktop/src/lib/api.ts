@@ -1,10 +1,57 @@
-import type { AppliedRow, Config, CustomSection, ExperienceRole, GithubRepo, JobRow, PromptInfo, Stats, TemplateInfo } from "./types";
+import type { AppliedRow, Config, CustomSection, ExperienceRole, GithubRepo, JobRow, Layout, PromptInfo, Stats, TemplateInfo } from "./types";
 
-export const BACKEND_URL = "http://127.0.0.1:8756";
+// Electron always talks to its own local backend directly, no password needed.
+// A standalone web deploy has no localhost backend to talk to, so it reads the
+// tunnel URL + shared token the user entered on the Connect screen instead.
+export const isElectron = typeof window !== "undefined" && !!window.desktop;
+
+const LS_URL = "backendUrl";
+const LS_TOKEN = "backendToken";
+
+function readStored() {
+  if (isElectron) return { url: "http://127.0.0.1:8756", token: "" };
+  try {
+    return { url: localStorage.getItem(LS_URL) ?? "", token: localStorage.getItem(LS_TOKEN) ?? "" };
+  } catch {
+    return { url: "", token: "" };
+  }
+}
+
+const stored = readStored();
+export const BACKEND_URL = stored.url;
+const TOKEN = stored.token;
+
+// True once we have a backend to talk to (Electron always does; web needs the
+// Connect screen to have run first).
+export const isConfigured = isElectron || !!BACKEND_URL;
+
+// Sets the backend URL/token for a standalone web deploy and reloads, so every
+// module (this one, eventStream's WS, PDF links) picks up the new value fresh.
+export function setBackendConfig(url: string, token: string) {
+  localStorage.setItem(LS_URL, url.replace(/\/+$/, ""));
+  localStorage.setItem(LS_TOKEN, token);
+  window.location.reload();
+}
+
+export function clearBackendConfig() {
+  localStorage.removeItem(LS_URL);
+  localStorage.removeItem(LS_TOKEN);
+  window.location.reload();
+}
+
+// Appends the shared token as a query param, for plain <embed>/<a> links (PDF
+// previews) that can't set the x-api-token header.
+function withToken(url: string): string {
+  if (!TOKEN) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(TOKEN)}`;
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(TOKEN ? { "x-api-token": TOKEN } : {}),
+    },
     ...options,
   });
   if (!res.ok) {
@@ -35,6 +82,23 @@ export const api = {
   getOllamaKeys: () => request<{ keys: string[] }>("/api/ollama-keys"),
   putOllamaKeys: (keys: string[]) =>
     request<{ saved: boolean }>("/api/ollama-keys", { method: "PUT", body: JSON.stringify({ keys }) }),
+
+  getLayout: () => request<Layout>("/api/layout"),
+  saveLayout: (layout: Layout) => request<Layout>("/api/layout", { method: "PUT", body: JSON.stringify(layout) }),
+  // compiles an unsaved draft; resolves to a blob: URL for the PDF embed
+  previewLayout: async (layout: Layout, signal?: AbortSignal): Promise<string> => {
+    const res = await fetch(`${BACKEND_URL}/api/layout/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(TOKEN ? { "x-api-token": TOKEN } : {}) },
+      body: JSON.stringify(layout),
+      signal,
+    });
+    if (!res.ok) {
+      const detail = await res.json().then((b) => b.detail).catch(() => "");
+      throw new Error(detail || "Preview could not be compiled");
+    }
+    return URL.createObjectURL(await res.blob());
+  },
 
   getResumeData: () =>
     request<{
@@ -69,7 +133,8 @@ export const api = {
   removeAllJobs: () => request<{ removed: number }>("/api/jobs/remove-all", { method: "POST" }),
   removeBlacklistedJobs: () => request<{ removed: number }>("/api/jobs/remove-blacklisted", { method: "POST" }),
   applyJob: (id: number) => request<AppliedRow>(`/api/jobs/${id}/apply`, { method: "POST" }),
-  buildJob: (id: number) => request<{ started: boolean }>(`/api/jobs/${id}/build`, { method: "POST" }),
+  buildJob: (id: number, engine: "default" | "claude" = "default") =>
+    request<{ started: boolean }>(`/api/jobs/${id}/build`, { method: "POST", body: JSON.stringify({ engine }) }),
   compileJob: (id: number, latexCode: string) =>
     request<{ compiled: boolean; resume_path: string }>(`/api/jobs/${id}/compile`, {
       method: "POST",
@@ -81,8 +146,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ section_id: sectionId, message, latex }),
     }),
-  jobResumePdfUrl: (id: number) => `${BACKEND_URL}/api/jobs/${id}/resume.pdf`,
-  jobCoverPdfUrl: (id: number) => `${BACKEND_URL}/api/jobs/${id}/cover.pdf`,
+  jobResumePdfUrl: (id: number) => withToken(`${BACKEND_URL}/api/jobs/${id}/resume.pdf`),
+  jobCoverPdfUrl: (id: number) => withToken(`${BACKEND_URL}/api/jobs/${id}/cover.pdf`),
 
   listApplied: () => request<AppliedRow[]>("/api/applied"),
   getApplied: (id: number) => request<AppliedRow>(`/api/applied/${id}`),
@@ -93,8 +158,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ latex: latexCode }),
     }),
-  resumePdfUrl: (id: number) => `${BACKEND_URL}/api/outputs/${id}/resume.pdf`,
-  coverPdfUrl: (id: number) => `${BACKEND_URL}/api/outputs/${id}/cover.pdf`,
+  resumePdfUrl: (id: number) => withToken(`${BACKEND_URL}/api/outputs/${id}/resume.pdf`),
+  coverPdfUrl: (id: number) => withToken(`${BACKEND_URL}/api/outputs/${id}/cover.pdf`),
 
   listTemplates: () => request<TemplateInfo[]>("/api/templates"),
   getTemplate: (id: string) => request<{ id: string; content: string }>(`/api/templates/${id}`),
@@ -104,7 +169,7 @@ export const api = {
     request(`/api/templates/${id}`, { method: "PUT", body: JSON.stringify({ content }) }),
   deleteTemplate: (id: string) => request(`/api/templates/${id}`, { method: "DELETE" }),
   activateTemplate: (id: string) => request(`/api/templates/${id}/activate`, { method: "POST" }),
-  templatePreviewUrl: (id: string) => `${BACKEND_URL}/api/templates/${id}/preview.pdf`,
+  templatePreviewUrl: (id: string) => withToken(`${BACKEND_URL}/api/templates/${id}/preview.pdf`),
 
   getPrompts: () => request<Record<string, PromptInfo>>("/api/prompts"),
   savePrompt: (key: string, text: string) =>
@@ -125,4 +190,16 @@ export const api = {
   getScheduler: () => request<{ enabled: boolean; time: string }>("/api/scheduler"),
   putScheduler: (payload: { enabled: boolean; time: string }) =>
     request("/api/scheduler", { method: "PUT", body: JSON.stringify(payload) }),
+
+  googleStatus: () => request<{ configured: boolean; connected: boolean; email: string }>("/api/google/status"),
+  googleConnect: () => request<{ auth_url: string }>("/api/google/connect", { method: "POST" }),
+  googleDisconnect: () => request<{ disconnected: boolean }>("/api/google/disconnect", { method: "POST" }),
+
+  greenhouseStatus: () => request<{ connected: boolean }>("/api/greenhouse/status"),
+  greenhouseConnect: () => request<{ connected: boolean }>("/api/greenhouse/connect", { method: "POST" }),
+  greenhouseDisconnect: () => request<{ disconnected: boolean }>("/api/greenhouse/disconnect", { method: "POST" }),
+  uploadJobToDrive: (id: number) =>
+    request<{ resume_link?: string; cover_link?: string }>(`/api/jobs/${id}/upload-to-drive`, { method: "POST" }),
+  uploadAppliedToDrive: (id: number) =>
+    request<{ resume_link?: string; cover_link?: string }>(`/api/applied/${id}/upload-to-drive`, { method: "POST" }),
 };

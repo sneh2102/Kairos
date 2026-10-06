@@ -139,6 +139,12 @@ export default function JobDetail({ id, source }: { id: number; source: "jobs" |
         {hasResume && <Btn label="✏️ Edit LaTeX résumé" variant="primary" disabled={busy} onPress={() => nav.go({ name: "latex", id, source })} />}
         <Btn label="📄 Save Resume PDF" variant="secondary" disabled={busy} onPress={() => savePdf("resume")} />
         <Btn label="✉️ Save Cover Letter PDF" variant="secondary" disabled={busy} onPress={() => savePdf("cover")} />
+        <Btn
+          label="☁️ Upload to Google Drive"
+          variant="secondary"
+          disabled={busy || !hasResume}
+          onPress={() => run(() => (isJob ? api.uploadJobToDrive(id) : api.uploadAppliedToDrive(id)), "Uploaded to Google Drive.")}
+        />
       </View>
       <Text style={st.hint}>
         Saved into <Text style={{ color: C.sub }}>Company/Title/</Text> — the same folder tree as the desktop app.

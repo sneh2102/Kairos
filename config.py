@@ -101,10 +101,14 @@ def save_config(new_cfg: dict):
     """Persists to config.json and updates the in-memory CONFIG in place, so
     graphs built after this call (each `scrape`/`apply` run builds fresh) pick
     up the change without a process restart."""
+    # A caller that mutates CONFIG in place and passes it back in (e.g.
+    # save_ollama_keys) hands us the SAME dict object as CONFIG below — clear()
+    # then update(new_cfg) from itself would wipe it to {} instead of no-op.
+    if new_cfg is not CONFIG:
+        CONFIG.clear()
+        CONFIG.update(new_cfg)
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(new_cfg, f, indent=2, ensure_ascii=False)
-    CONFIG.clear()
-    CONFIG.update(new_cfg)
+        json.dump(CONFIG, f, indent=2, ensure_ascii=False)
 
 
 # One-time migration: copy legacy .env keys into config.json so config.json is

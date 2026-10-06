@@ -2,17 +2,40 @@
 response cleanup and the surgical-rebuild system prompt they all reuse."""
 import re
 
+from tools.section_render import parse_json
+
 _PREAMBLE_LINE = re.compile(
     r"^\s*\\(documentclass|usepackage|newcommand|renewcommand|begin\{document\}|pagestyle|addtolength).*$",
     re.MULTILINE,
 )
 
+BOLD_RULE = (
+    "BOLD: wrap the 2-3 most JD-relevant terms of a bullet in **double asterisks**, e.g. "
+    '"Built a **RAG** pipeline with **LangGraph**". Write % & _ # as plain characters and '
+    "never use LaTeX commands — the program converts the asterisks to bold and escapes the rest."
+)
+
+
+def ask_json(client, system: str, user: str, render, attempts: int = 3) -> str:
+    """Ask for JSON, render it to LaTeX. `render(data)` raises on a bad shape; the
+    model then gets the error and tries again. Raises after `attempts` failures."""
+    last = None
+    for _ in range(attempts):
+        retry = f"\n\nYour previous reply was invalid ({last}). Reply with ONLY the JSON object." if last else ""
+        raw = client.complete(system=system, user=user + retry)
+        try:
+            return render(parse_json(raw))
+        except (ValueError, KeyError, TypeError, AttributeError) as e:   # JSONDecodeError is a ValueError
+            last = e
+    raise ValueError(f"model never returned valid section JSON: {last}")
+
+
 SYSTEM_SURGICAL = (
     "You are an expert resume editor performing a SURGICAL fix on one resume section.\n"
     "Apply ONLY the changes requested in the feedback. Keep company names, role titles, "
     "dates, project names, and overall structure exactly as they are unless the feedback "
-    "explicitly says to change them. Output ONLY the raw LaTeX for this section — no "
-    "backticks, no explanation, no \\documentclass/\\usepackage/\\begin{document}/\\end{document}."
+    "explicitly says to change them. Return the full corrected section in the JSON "
+    "format specified below, with no explanation."
 )
 
 
@@ -23,6 +46,8 @@ def strip_backticks(text: str) -> str:
 
 def strip_to_body(text: str) -> str:
     text = text.replace("\\end{document}", "")
+    # models sometimes append "% Notes: ..." — clean() would escape the % and print it on the PDF
+    text = re.sub(r"^\s*%.*$", "", text, flags=re.MULTILINE)
     text = _PREAMBLE_LINE.sub("", text)
     return text.strip()
 
@@ -63,7 +88,10 @@ def escape_latex_specials(text: str) -> str:
 
 
 def clean(text: str) -> str:
-    return escape_latex_specials(strip_to_body(strip_backticks(text)))
+    out = escape_latex_specials(strip_to_body(strip_backticks(text)))
+    # URLs must stay literal: undo the escapes inside \href{...} (e.g. my\_repo -> my_repo)
+    return re.sub(r"\\href\{([^}]*)\}",
+                  lambda m: "\\href{" + re.sub(r"\\([_&%#])", r"\1", m.group(1)) + "}", out)
 
 
 _QUALIFIERS = ("over", "nearly", "more than", "with", "around", "about", "approximately", "almost")
@@ -101,4 +129,5 @@ if __name__ == "__main__":
     assert escape_latex_specials(escape_latex_specials("a & b")) == r"a \& b"              # double-run stable
     # clean() strips fences/preamble then escapes
     assert clean("```latex\n\\resumeItem{99% uptime}\n```") == r"\resumeItem{99\% uptime}"
+    assert clean("\\href{https://github.com/a/my_repo}{x_y}\n% Notes: z") == r"\href{https://github.com/a/my_repo}{x\_y}"
     print("ok")

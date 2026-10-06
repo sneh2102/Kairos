@@ -174,7 +174,7 @@ _SAMPLE_EXPERIENCE = r"""
 _SAMPLE_PROJECTS = r"""
 \section{Relevant Projects}
 \resumeSubHeadingListStart
-  \resumeProjectHeading{\textbf{Sample Project} $|$ \emph{React, FastAPI, PostgreSQL}}{}
+  \resumeProjectHeading{\textbf{Sample Project} | \emph{React, FastAPI, PostgreSQL}}{}
   \resumeItemListStart
     \resumeItem{Built a full-stack analytics dashboard serving 500+ daily users with sub-200ms response times}
     \resumeItem{Designed a caching layer with \textbf{Redis}, lowering database load by 60\% at peak traffic}

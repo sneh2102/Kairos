@@ -16,4 +16,16 @@ contextBridge.exposeInMainWorld("desktop", {
       return () => ipcRenderer.removeListener("mobile:status", h);
     },
   },
+  web: {
+    start: () => ipcRenderer.invoke("web:start"),
+    stop: () => ipcRenderer.invoke("web:stop"),
+    status: () => ipcRenderer.invoke("web:status"),
+    token: () => ipcRenderer.invoke("web:token"),
+    setToken: (token) => ipcRenderer.invoke("web:set-token", token),
+    onStatus: (cb) => {
+      const h = (_e, s) => cb(s);
+      ipcRenderer.on("web:status", h);
+      return () => ipcRenderer.removeListener("web:status", h);
+    },
+  },
 });

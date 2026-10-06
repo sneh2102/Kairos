@@ -9,6 +9,8 @@ from jobspy.bayt import BaytScraper
 from jobspy.bdjobs import BDJobs
 from jobspy.glassdoor import Glassdoor
 from jobspy.google import Google
+from jobspy.greenhouse import Greenhouse
+from jobspy.hiringcafe import HiringCafe
 from jobspy.indeed import Indeed
 from jobspy.linkedin import LinkedIn
 from jobspy.naukri import Naukri
@@ -51,6 +53,7 @@ def scrape_jobs(
     enforce_annual_salary: bool = False,
     verbose: int = 0,
     user_agent: str = None,
+    greenhouse_cookie: str | None = None,
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -68,6 +71,8 @@ def scrape_jobs(
         Site.BDJOBS: BDJobs,
         Site.JOBRIGHT: JobRightScraper,
         Site.WELLFOUND: Wellfound,
+        Site.HIRINGCAFE: HiringCafe,
+        Site.GREENHOUSE: Greenhouse,
     }
     set_logger_level(verbose)
     job_type = get_enum_from_value(job_type) if job_type else None
@@ -103,6 +108,7 @@ def scrape_jobs(
         linkedin_company_ids=linkedin_company_ids,
         offset=offset,
         hours_old=hours_old,
+        greenhouse_cookie=greenhouse_cookie,
     )
 
     def scrape_site(site: Site) -> Tuple[str, JobResponse]:

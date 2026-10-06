@@ -49,6 +49,8 @@ def scrape_new_jobs(cfg: dict, jobs_db: JobsDB, applied_db: AppliedDB, emit=None
     scrape_kwargs = {}
     if scraper_cfg.get("country_indeed"):
         scrape_kwargs["country_indeed"] = scraper_cfg["country_indeed"]
+    if scraper_cfg.get("greenhouse_cookie"):
+        scrape_kwargs["greenhouse_cookie"] = scraper_cfg["greenhouse_cookie"]
 
     seen_urls: set[str] = set()
     all_rows: list[dict] = []

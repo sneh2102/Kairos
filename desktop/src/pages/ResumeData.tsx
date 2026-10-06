@@ -132,6 +132,15 @@ export default function ResumeData() {
 
       {tab === "projects" && (
         <div className="flex flex-col gap-4">
+          {config && (
+            <div className="max-w-xs">
+              <LabeledNumber
+                label="Bullets per project"
+                value={config.pipeline.project_bullets}
+                onChange={(v) => setConfig({ ...config, pipeline: { ...config.pipeline, project_bullets: v } })}
+              />
+            </div>
+          )}
           <GithubImport onAppend={(entry) => setProjectsText((prev) => `${prev.trim()}\n\n${entry}\n`)} />
           <textarea
             className="input flex-1 font-mono text-xs resize-none"
@@ -294,7 +303,7 @@ function CustomSectionsEditor({
         <code>{"{description}"}</code>, <code>{"{existing_resume}"}</code>, <code>{"{ats_feedback}"}</code> in the
         user prompt.
       </p>
-      {sections.map((s) => (
+      {sections.filter((s) => s.kind !== "static").map((s) => (   // static ones are edited in the Resume designer
         <div key={s.id} className="card p-4">
           <div className="flex items-center justify-between">
             <button className="text-sm font-medium text-fg" onClick={() => setExpanded(expanded === s.id ? null : s.id)}>

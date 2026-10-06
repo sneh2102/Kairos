@@ -5,7 +5,11 @@ to also cover ai.py's screening use-case so there's a single client class
 instead of two.
 """
 import logging
+import os
+import subprocess
+import tempfile
 import time
+from pathlib import Path
 
 import requests
 from ollama import Client
@@ -13,6 +17,40 @@ from ollama import Client
 OLLAMA_HOST = "https://ollama.com"
 _RATE_LIMIT_TOKENS = ("rate limit", "429", "401", "403", "quota", "limit exceeded")
 _CONTENT_SNIFF_TOKENS = ('"score"', '"verdict"', "\\section", "\\resumeItem", "\\resumeSubheading")
+
+
+_NO_CHATTER = (
+    "\n\nOUTPUT RULE: return ONLY the requested content. No notes, no explanations, no "
+    "comments, no LaTeX % comment lines, no mention of tools, connectors or your choices."
+)
+
+
+class ClaudeCliClient:
+    """Drop-in for RotatingOllamaClient.complete() that shells out to the `claude`
+    CLI (`claude -p`), so it uses your Claude subscription — no API key needed.
+    Only used for the jobs you pick; screening/ATS/etc. stay on the Ollama model."""
+
+    def __init__(self, model: str = "", timeout: int = 600):
+        self.model = model
+        self.timeout = timeout
+
+    def complete(self, system: str, user: str, max_tokens: int | None = None, **_) -> str:
+        # system prompt goes via a file: Windows caps command lines at ~32k chars
+        with tempfile.TemporaryDirectory() as tmp:
+            sys_file = Path(tmp) / "system.txt"
+            sys_file.write_text(system + _NO_CHATTER, encoding="utf-8")
+            cmd = ["claude", "-p", "--tools", "", "--no-session-persistence", "--disable-slash-commands",
+                   "--setting-sources", "project", "--strict-mcp-config",
+                   "--system-prompt-file", str(sys_file)]
+            if self.model:
+                cmd += ["--model", self.model]
+            # cwd=tmp so the project's CLAUDE.md / memory never leaks into the prompt
+            proc = subprocess.run(cmd, input=user, capture_output=True, text=True, encoding="utf-8",
+                                  timeout=self.timeout, cwd=tmp, shell=(os.name == "nt"))
+        out = proc.stdout.strip()
+        if proc.returncode != 0 or not out:
+            raise RuntimeError(f"claude CLI failed ({proc.returncode}): {(proc.stderr or out)[:300]}")
+        return out
 
 
 class RotatingOllamaClient:

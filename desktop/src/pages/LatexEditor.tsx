@@ -65,8 +65,8 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
     }
   }
 
-  const previewUrl =
-    (kind === "job" ? api.jobResumePdfUrl(recordId) : api.resumePdfUrl(recordId)) + `?v=${previewVersion}`;
+  const baseUrl = kind === "job" ? api.jobResumePdfUrl(recordId) : api.resumePdfUrl(recordId);
+  const previewUrl = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}v=${previewVersion}`;
 
   return (
     <div className="flex flex-col gap-3 h-full">
@@ -120,7 +120,14 @@ export default function LatexEditor({ kind }: { kind: "job" | "applied" }) {
         />
         <div className="h-full">
           {previewVersion > 0 || latexCode ? (
-            <PdfViewer url={previewUrl} title="Resume preview" />
+            <div className="h-full flex flex-col gap-2">
+              <a href={baseUrl} download className="btn-secondary w-fit text-xs">
+                Download PDF
+              </a>
+              <div className="flex-1">
+                <PdfViewer url={previewUrl} title="Resume preview" />
+              </div>
+            </div>
           ) : (
             <div className="h-full flex items-center justify-center text-sm text-muted card">
               Compile to see a preview.

@@ -9,7 +9,19 @@ export default function Applied() {
   const [rows, setRows] = useState<AppliedRow[]>([]);
   const [selected, setSelected] = useState<AppliedRow | null>(null);
   const [tab, setTab] = useState<"resume" | "cover" | "details">("resume");
+  const [q, setQ] = useState("");
+  const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const filteredRows = rows.filter((row) => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      row.company.toLowerCase().includes(needle) ||
+      row.title.toLowerCase().includes(needle) ||
+      row.applied_date.toLowerCase().includes(needle)
+    );
+  });
 
   function load() {
     api.listApplied().then(setRows);
@@ -29,6 +41,16 @@ export default function Applied() {
     load();
   }
 
+  async function uploadToDrive(id: number) {
+    setDriveMsg(null);
+    try {
+      await api.uploadAppliedToDrive(id);
+      setDriveMsg("Uploaded to Google Drive.");
+    } catch (e) {
+      setDriveMsg(String(e));
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4 h-full">
       <div className="flex items-center justify-between">
@@ -41,10 +63,20 @@ export default function Applied() {
         </button>
       </div>
 
+      <input
+        className="input"
+        placeholder="Search by company, position, or date..."
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-4 flex-1 min-h-0">
         <div className="flex flex-col gap-2 overflow-y-auto pr-1">
           {rows.length === 0 && <div className="text-sm text-muted">No applications yet.</div>}
-          {rows.map((row) => (
+          {rows.length > 0 && filteredRows.length === 0 && (
+            <div className="text-sm text-muted">No applications match "{q}".</div>
+          )}
+          {filteredRows.map((row) => (
             <div
               key={row.id}
               onClick={() => {
@@ -90,14 +122,27 @@ export default function Applied() {
                   <TabButton active={tab === "details"} onClick={() => setTab("details")} label="Details" />
                 </div>
                 <div className="flex gap-2 pr-2">
+                  {tab !== "details" && (
+                    <a
+                      href={tab === "resume" ? api.resumePdfUrl(selected.id) : api.coverPdfUrl(selected.id)}
+                      download
+                      className="text-xs text-accent hover:underline"
+                    >
+                      Download
+                    </a>
+                  )}
                   <button className="text-xs text-accent hover:underline" onClick={() => navigate(`/applied/${selected.id}/editor`)}>
                     Edit LaTeX
+                  </button>
+                  <button className="text-xs text-accent hover:underline" onClick={() => uploadToDrive(selected.id)}>
+                    Upload to Drive
                   </button>
                   <button className="text-xs text-maybe hover:underline" onClick={() => unapply(selected.id)}>
                     Unapply
                   </button>
                 </div>
               </div>
+              {driveMsg && <div className="text-xs text-yes px-3 pt-2">{driveMsg}</div>}
               <div className="flex-1 p-2">
                 {tab === "details" ? (
                   <div className="p-3 text-sm text-fg-soft space-y-2 overflow-y-auto h-full">

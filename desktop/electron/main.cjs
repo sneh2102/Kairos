@@ -23,19 +23,22 @@ app.setName("Job Scraper");
 let backendProcess = null;
 let mainWindow = null;
 
-// Per-install shared secret for mobile tunnel traffic. Generated once on first
-// run, persisted in userData, reused after. The backend checks it
-// (TUNNEL_TOKEN); mobile/config.ts sends it (API_TOKEN) — both must match, so
-// we pass it to the backend on launch and write it into config.ts when the
-// mobile bridge starts. No secret is committed to the repo.
+// Per-install shared secret for tunnel traffic (mobile + web). Generated once
+// on first run, persisted in userData, reused after. The backend re-reads
+// this file on every request (TUNNEL_TOKEN_FILE) rather than caching it at
+// startup, so changing the password from the Web access panel takes effect
+// immediately — no backend restart needed. mobile/config.ts gets the current
+// value written in whenever the mobile bridge starts. No secret is committed
+// to the repo.
+const MOBILE_TOKEN_FILE = path.join(app.getPath("userData"), "mobile-token");
+
 function mobileToken() {
-  const f = path.join(app.getPath("userData"), "mobile-token");
   try {
-    const existing = fs.readFileSync(f, "utf-8").trim();
+    const existing = fs.readFileSync(MOBILE_TOKEN_FILE, "utf-8").trim();
     if (existing) return existing;
   } catch { /* first run */ }
   const t = crypto.randomBytes(32).toString("base64url");
-  fs.writeFileSync(f, t);
+  fs.writeFileSync(MOBILE_TOKEN_FILE, t);
   return t;
 }
 let MOBILE_TOKEN = null; // set in startBackend (needs app to be ready)
@@ -64,14 +67,14 @@ function startBackend() {
         PLAYWRIGHT_BROWSERS_PATH: path.join(process.resourcesPath, "chromium"),
         TECTONIC_PATH: path.join(process.resourcesPath, "tectonic", "tectonic" + EXE),
         RESUME_ICON_DIR: path.join(process.resourcesPath, "resume-icons"),
-        TUNNEL_TOKEN: MOBILE_TOKEN,
+        TUNNEL_TOKEN_FILE: MOBILE_TOKEN_FILE,
       },
     });
   } else {
     backendProcess = spawn(pythonExe(), ["-m", "uvicorn", "server:app", "--port", String(BACKEND_PORT)], {
       cwd: BACKEND_ROOT,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, TUNNEL_TOKEN: MOBILE_TOKEN },
+      env: { ...process.env, TUNNEL_TOKEN_FILE: MOBILE_TOKEN_FILE },
     });
   }
   backendProcess.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
@@ -185,7 +188,7 @@ function writeMobileConfig(url) {
 
 // Spawn a quick trycloudflare tunnel to a local port; onUrl fires once with the
 // public https URL (cloudflared logs it to stderr).
-function startCloudflared(port, onUrl) {
+function startCloudflared(port, onUrl, onError) {
   const proc = spawn(cloudflaredPath(), ["tunnel", "--url", `http://127.0.0.1:${port}`], { cwd: BACKEND_ROOT });
   let done = false;
   const onData = (d) => {
@@ -196,7 +199,7 @@ function startCloudflared(port, onUrl) {
   };
   proc.stdout.on("data", onData);
   proc.stderr.on("data", onData);
-  proc.on("error", (e) => setMobile({ phase: "error", error: `cloudflared: ${e.message}` }));
+  proc.on("error", (e) => onError?.(e));
   return proc;
 }
 
@@ -225,20 +228,63 @@ function stopMobile() {
 ipcMain.handle("mobile:start", () => {
   if (mobileState.phase !== "idle" && mobileState.phase !== "error") return mobileState;
   setMobile({ phase: "starting-tunnel", backendUrl: null, expoUrl: null, error: null });
-  cfBackend = startCloudflared(BACKEND_PORT, (url) => {
-    writeMobileConfig(url);
-    setMobile({ phase: "starting-expo", backendUrl: url });
-    cfMetro = startCloudflared(METRO_PORT, (metroUrl) => {
-      startExpo(metroUrl); // proxy env must be set before Metro bundles
-      setMobile({ phase: "ready", expoUrl: metroUrl.replace("https://", "exp://") });
-    });
-  });
+  cfBackend = startCloudflared(
+    BACKEND_PORT,
+    (url) => {
+      writeMobileConfig(url);
+      setMobile({ phase: "starting-expo", backendUrl: url });
+      cfMetro = startCloudflared(METRO_PORT, (metroUrl) => {
+        startExpo(metroUrl); // proxy env must be set before Metro bundles
+        setMobile({ phase: "ready", expoUrl: metroUrl.replace("https://", "exp://") });
+      });
+    },
+    (e) => setMobile({ phase: "error", error: `cloudflared: ${e.message}` }),
+  );
   return mobileState;
 });
 ipcMain.handle("mobile:stop", () => { stopMobile(); return mobileState; });
 ipcMain.handle("mobile:status", () => mobileState);
 
 ipcMain.handle("backend:url", () => BACKEND_URL);
+
+// ---------------------------------------------------------------------------
+// Web bridge: same backend tunnel + shared token as the mobile bridge, but
+// standalone — no Expo/Metro needed since the web frontend is just a static
+// site that reads the URL/password on its own "Connect" screen.
+// ---------------------------------------------------------------------------
+let cfWeb = null;
+let webState = { phase: "idle", url: null, error: null };
+
+function setWeb(patch) {
+  webState = { ...webState, ...patch };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("web:status", webState);
+}
+
+ipcMain.handle("web:start", () => {
+  if (webState.phase !== "idle" && webState.phase !== "error") return webState;
+  setWeb({ phase: "starting", url: null, error: null });
+  cfWeb = startCloudflared(
+    BACKEND_PORT,
+    (url) => setWeb({ phase: "ready", url }),
+    (e) => setWeb({ phase: "error", error: `cloudflared: ${e.message}` }),
+  );
+  return webState;
+});
+ipcMain.handle("web:stop", () => {
+  if (cfWeb) cfWeb.kill();
+  cfWeb = null;
+  setWeb({ phase: "idle", url: null, error: null });
+  return webState;
+});
+ipcMain.handle("web:status", () => webState);
+ipcMain.handle("web:token", () => MOBILE_TOKEN);
+ipcMain.handle("web:set-token", (_e, token) => {
+  const next = String(token ?? "").trim();
+  if (!next) throw new Error("Password can't be empty.");
+  fs.writeFileSync(MOBILE_TOKEN_FILE, next);
+  MOBILE_TOKEN = next;
+  return MOBILE_TOKEN;
+});
 
 ipcMain.handle("dialog:pick-folder", async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
@@ -260,6 +306,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   stopMobile();
+  if (cfWeb) { cfWeb.kill(); cfWeb = null; }
   if (backendProcess) {
     backendProcess.kill();
     backendProcess = null;
