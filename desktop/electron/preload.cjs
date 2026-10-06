@@ -6,6 +6,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("desktop", {
   getBackendUrl: () => ipcRenderer.invoke("backend:url"),
   pickFolder: () => ipcRenderer.invoke("dialog:pick-folder"),
+  getLaunchOnStartup: () => ipcRenderer.invoke("desktop:get-launch-on-startup"),
+  setLaunchOnStartup: (enabled) => ipcRenderer.invoke("desktop:set-launch-on-startup", enabled),
   mobile: {
     start: () => ipcRenderer.invoke("mobile:start"),
     stop: () => ipcRenderer.invoke("mobile:stop"),

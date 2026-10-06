@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -30,8 +30,12 @@
         "to": "backend"
       },
       {
-        "from": "build-resources/chromium",
-        "to": "chromium"
+        "from": "../config.example.json",
+        "to": ""
+      },
+      {
+        "from": "build-resources/browsers",
+        "to": "browsers"
       },
       {
         "from": "build-resources/tectonic",
@@ -57,7 +61,16 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "certificateFile": null,
+      "certificatePassword": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kairos"
     },
     "mac": {
       "target": "dmg",

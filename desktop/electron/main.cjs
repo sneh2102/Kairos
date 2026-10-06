@@ -1,6 +1,6 @@
 // Electron main process: spawns the Python/FastAPI backend, waits for it to
 // be healthy, then opens the window. Kills the backend on quit.
-const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
@@ -22,6 +22,25 @@ app.setName("Job Scraper");
 
 let backendProcess = null;
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+
+// config.json lives wherever the backend looks for it (config.py's DATA_DIR):
+// the OS per-user data dir when packaged, the repo root in dev. Read fresh on
+// every close rather than cached, so a change made in Settings takes effect
+// without restarting the app.
+const CONFIG_PATH = app.isPackaged
+  ? path.join(app.getPath("userData"), "config.json")
+  : path.join(BACKEND_ROOT, "config.json");
+
+function getDesktopConfig() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    return { runInBackground: false, launchOnStartup: false, ...raw.desktop };
+  } catch {
+    return { runInBackground: false, launchOnStartup: false };
+  }
+}
 
 // Per-install shared secret for tunnel traffic (mobile + web). Generated once
 // on first run, persisted in userData, reused after. The backend re-reads
@@ -52,19 +71,52 @@ function pythonExe() {
 
 function startBackend() {
   MOBILE_TOKEN = mobileToken();
+  const userData = app.getPath("userData");
+  const logPath = path.join(userData, "app.log");
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+
+  function logToFile(prefix, data) {
+    const timestamp = new Date().toISOString();
+    const message = `[${timestamp}] [${prefix}] ${data}`;
+    process.stdout.write(message);
+    logStream.write(message);
+  }
+
   if (app.isPackaged) {
     // Frozen (PyInstaller) backend + bundled Chromium/Tectonic, laid out by
     // electron-builder's extraResources under resourcesPath. User data
     // (config/resume/db) lives in the OS per-user data dir, never inside the
     // read-only installed app folder.
-    const backendExe = path.join(process.resourcesPath, "backend", "server" + EXE);
+
+    // Try multiple possible paths for the backend executable (handles different bundle layouts)
+    const backendPaths = [
+      path.join(process.resourcesPath, "backend", "server", "server" + EXE),
+      path.join(process.resourcesPath, "backend", "server" + EXE),
+    ];
+
+    let backendExe = null;
+    for (const candidate of backendPaths) {
+      if (fs.existsSync(candidate)) {
+        backendExe = candidate;
+        break;
+      }
+    }
+
+    if (!backendExe) {
+      const errorMsg = `Backend executable not found. Searched:\n${backendPaths.join("\n")}\n\nresourcesPath: ${process.resourcesPath}`;
+      logToFile("error", `${errorMsg}\n`);
+      throw new Error(errorMsg);
+    }
+
+    logToFile("startup", `Starting backend from: ${backendExe}\n`);
+
     backendProcess = spawn(backendExe, [], {
-      cwd: path.dirname(backendExe),
+      cwd: userData,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        JOB_HUNTER_DATA_DIR: app.getPath("userData"),
-        PLAYWRIGHT_BROWSERS_PATH: path.join(process.resourcesPath, "chromium"),
+        JOB_HUNTER_DATA_DIR: userData,
+        PLAYWRIGHT_BROWSERS_PATH: path.join(process.resourcesPath, "browsers"),
         TECTONIC_PATH: path.join(process.resourcesPath, "tectonic", "tectonic" + EXE),
         RESUME_ICON_DIR: path.join(process.resourcesPath, "resume-icons"),
         TUNNEL_TOKEN_FILE: MOBILE_TOKEN_FILE,
@@ -77,16 +129,36 @@ function startBackend() {
       env: { ...process.env, TUNNEL_TOKEN_FILE: MOBILE_TOKEN_FILE },
     });
   }
-  backendProcess.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
-  backendProcess.stderr.on("data", (d) => process.stderr.write(`[backend] ${d}`));
+
+  backendProcess.stdout.on("data", (d) => logToFile("backend", d.toString()));
+  backendProcess.stderr.on("data", (d) => logToFile("backend:err", d.toString()));
+  backendProcess.on("error", (err) => {
+    logToFile("error", `Backend spawn error: ${err.message}\n`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showErrorBox(
+        "Backend Error",
+        `Failed to start backend process:\n\n${err.message}`
+      );
+    }
+  });
   backendProcess.on("exit", (code) => {
-    console.log(`Backend exited with code ${code}`);
+    logToFile("backend", `Backend exited with code ${code}\n`);
     backendProcess = null;
+
+    if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showErrorBox(
+        "Application Error",
+        "The backend process crashed. Please restart the application.\n\n" +
+        `Check the log file at: ${logPath}`
+      );
+      mainWindow.close();
+    }
   });
 }
 
 function waitForHealth(timeoutMs = 30000) {
   const start = Date.now();
+  let lastError = null;
   return new Promise((resolve, reject) => {
     const tick = () => {
       http
@@ -94,10 +166,18 @@ function waitForHealth(timeoutMs = 30000) {
           if (res.statusCode === 200) return resolve();
           retry();
         })
-        .on("error", retry);
+        .on("error", (err) => {
+          lastError = err;
+          retry();
+        });
     };
     const retry = () => {
-      if (Date.now() - start > timeoutMs) return reject(new Error("Backend health check timed out"));
+      if (Date.now() - start > timeoutMs) {
+        const msg = lastError
+          ? `Backend health check timed out (${lastError.code}). Backend may have crashed or failed to start.`
+          : `Backend health check timed out after ${timeoutMs}ms. Backend is not responding on port ${BACKEND_PORT}.`;
+        return reject(new Error(msg));
+      }
       setTimeout(tick, 400);
     };
     tick();
@@ -121,10 +201,32 @@ async function createWindow() {
     return { action: "deny" };
   });
 
+  // "Run in background" setting: hide to tray instead of quitting, so the
+  // backend keeps scraping/applying after the window closes. Off by default —
+  // closing quits like a normal app unless the user opted in.
+  mainWindow.on("close", (e) => {
+    if (isQuitting || !getDesktopConfig().runInBackground) return;
+    e.preventDefault();
+    mainWindow.hide();
+  });
+
   try {
     await waitForHealth();
   } catch (e) {
-    console.error(e);
+    console.error("Backend health check failed:", e);
+    const logPath = path.join(app.getPath("userData"), "app.log");
+    dialog.showErrorBox(
+      "Backend Failed to Start",
+      `The application backend could not start. This usually means:\n\n` +
+      `• Missing or incorrect API keys in Settings\n` +
+      `• Required Python dependencies are not properly installed\n` +
+      `• Another process is using port ${BACKEND_PORT}\n` +
+      `• Corrupted database or configuration file\n\n` +
+      `Please check the log file at:\n${logPath}\n\n` +
+      `Error: ${e.message}`
+    );
+    mainWindow.close();
+    return;
   }
 
   if (isDev) {
@@ -286,14 +388,47 @@ ipcMain.handle("web:set-token", (_e, token) => {
   return MOBILE_TOKEN;
 });
 
+ipcMain.handle("desktop:get-launch-on-startup", () => app.getLoginItemSettings().openAtLogin);
+ipcMain.handle("desktop:set-launch-on-startup", (_e, enabled) => {
+  app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+});
+
+// System tray icon — lets a window hidden by "run in background" be reopened,
+// and gives an explicit Quit that actually exits (vs. the X button, which
+// hides instead of closing when that setting is on). Reuses the mobile app's
+// icon.png so no separate icon asset needs to ship with the desktop build.
+function createTray() {
+  const iconPath = path.join(MOBILE_DIR, "assets", "icon.png");
+  let image = nativeImage.createFromPath(iconPath);
+  if (!image.isEmpty()) image = image.resize({ width: 16, height: 16 });
+  tray = new Tray(image);
+  tray.setToolTip("Kairos");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "Open Kairos", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+      { type: "separator" },
+      { label: "Quit", click: () => { isQuitting = true; app.quit(); } },
+    ])
+  );
+  tray.on("click", () => { mainWindow?.show(); mainWindow?.focus(); });
+}
+
 ipcMain.handle("dialog:pick-folder", async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
   return result.canceled ? null : result.filePaths[0];
 });
 
-app.whenReady().then(() => {
-  startBackend();
-  createWindow();
+app.whenReady().then(async () => {
+  try {
+    startBackend();
+    await createWindow();
+    createTray();
+  } catch (err) {
+    console.error("Failed to start application:", err);
+    dialog.showErrorBox("Startup Error", `Failed to start application: ${err.message}`);
+    app.quit();
+    return;
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -305,6 +440,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   stopMobile();
   if (cfWeb) { cfWeb.kill(); cfWeb = null; }
   if (backendProcess) {

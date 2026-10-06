@@ -3,23 +3,49 @@ import type { Dispatch, SetStateAction } from "react";
 import { api } from "../lib/api";
 import type { Config } from "../lib/types";
 
-type Tab = "model" | "api-keys" | "prompts" | "scheduler" | "google-drive";
+type Tab = "model" | "api-keys" | "prompts" | "scheduler" | "google-drive" | "desktop";
 
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null);
   const [tab, setTab] = useState<Tab>("model");
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getConfig().then(setConfig);
+    api.getConfig().then(async (c) => {
+      // launchOnStartup is OS state, not just config — read the real value
+      // (e.g. the user could've removed it from Startup Apps directly) so the
+      // checkbox never lies about what will actually happen on next boot.
+      const actual = await window.desktop?.getLaunchOnStartup();
+      if (actual !== undefined) {
+        c.desktop = { runInBackground: false, ...c.desktop, launchOnStartup: actual };
+      }
+      setConfig(c);
+    });
   }, []);
 
   async function save() {
     if (!config) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      await api.putConfig(config);
+      const token = config.github?.token?.trim();
+      if (token) {
+        const r = await api.validateGithubToken(token);
+        if (!r.valid) {
+          setSaveError(`GitHub token failed validation (${r.error ?? "invalid"}) — fix it on the Model tab before saving.`);
+          return;
+        }
+      }
+      // api_keys lives in this same config.json but is owned by the API Keys
+      // tab's own save flow (/api/ollama-keys) — `config` here still holds
+      // whatever was in it when Settings first loaded, so sending it back
+      // would clobber a key just added on that tab with the stale snapshot.
+      const payload = { ...config };
+      delete payload.api_keys;
+      await api.putConfig(payload);
+      if (config.desktop) await window.desktop?.setLaunchOnStartup(config.desktop.launchOnStartup);
       setSavedAt(Date.now());
     } finally {
       setSaving(false);
@@ -46,8 +72,10 @@ export default function Settings() {
         </div>
       </div>
 
+      {saveError && <div className="text-sm text-no">{saveError}</div>}
+
       <div className="flex border-b border-border">
-        {(["model", "api-keys", "prompts", "scheduler", "google-drive"] as Tab[]).map((t) => (
+        {(["model", "api-keys", "prompts", "scheduler", "google-drive", "desktop"] as Tab[]).map((t) => (
           <TabButton
             key={t}
             active={tab === t}
@@ -62,6 +90,7 @@ export default function Settings() {
       {tab === "prompts" && <PromptsTab config={config} setConfig={setConfig} />}
       {tab === "scheduler" && <SchedulerTab config={config} setConfig={setConfig} />}
       {tab === "google-drive" && <GoogleDriveTab config={config} setConfig={setConfig} save={save} saving={saving} />}
+      {tab === "desktop" && <DesktopTab config={config} setConfig={setConfig} />}
     </div>
   );
 }
@@ -72,6 +101,20 @@ function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) 
   const m = config.model;
   const set = (patch: Partial<Config["model"]>) => setConfig({ ...config, model: { ...m, ...patch } });
   const github = config.github ?? { token: "" };
+  const [check, setCheck] = useState<KeyCheck>({ state: "idle" });
+
+  async function verifyGithubToken() {
+    const value = github.token.trim();
+    if (!value) return;
+    setCheck({ state: "checking" });
+    try {
+      const r = await api.validateGithubToken(value);
+      setCheck({ state: r.valid ? "valid" : "invalid", error: r.error ?? undefined });
+    } catch (e) {
+      setCheck({ state: "invalid", error: String(e) });
+    }
+  }
+
   return (
     <div className="grid grid-cols-2 gap-3 max-w-3xl">
       <LabeledInput label="Screening model" value={m.scraping} onChange={(v) => set({ scraping: v })} />
@@ -81,12 +124,28 @@ function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) 
       <p className="col-span-2 text-xs text-muted">
         Ollama API keys live on the <strong className="text-fg-soft">API keys</strong> tab.
       </p>
-      <div className="col-span-2">
-        <LabeledInput
-          label="GitHub token (optional — raises the API rate limit for project import)"
-          value={github.token}
-          onChange={(v) => setConfig({ ...config, github: { token: v } })}
-        />
+      <div className="col-span-2 flex flex-col gap-1">
+        <div className="flex gap-2 items-end">
+          <div className="flex-1">
+            <LabeledInput
+              label="GitHub token (optional — raises the API rate limit for project import)"
+              value={github.token}
+              onChange={(v) => {
+                setConfig({ ...config, github: { token: v } });
+                setCheck({ state: "idle" });
+              }}
+            />
+          </div>
+          <button
+            className="btn-secondary shrink-0"
+            onClick={verifyGithubToken}
+            disabled={check.state === "checking" || !github.token.trim()}
+          >
+            {check.state === "checking" ? "Checking…" : "Verify"}
+          </button>
+        </div>
+        {check.state === "valid" && <span className="text-xs text-yes">✓ Valid</span>}
+        {check.state === "invalid" && <span className="text-xs text-no">✗ {check.error ?? "Invalid token"}</span>}
       </div>
     </div>
   );
@@ -189,9 +248,11 @@ function GoogleDriveTab({
     </div>
   );
 }
+type KeyCheck = { state: "idle" | "checking" | "valid" | "invalid"; error?: string };
 
 function ApiKeysTab() {
   const [keys, setKeys] = useState<string[]>([]);
+  const [checks, setChecks] = useState<Record<number, KeyCheck>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -203,19 +264,49 @@ function ApiKeysTab() {
 
   function update(i: number, value: string) {
     setKeys((prev) => prev.map((k, idx) => (idx === i ? value : k)));
+    setChecks((prev) => ({ ...prev, [i]: { state: "idle" } }));
   }
 
   function remove(i: number) {
     setKeys((prev) => prev.filter((_, idx) => idx !== i));
+    setChecks((prev) => {
+      const next: Record<number, KeyCheck> = {};
+      Object.entries(prev).forEach(([idx, v]) => {
+        const n = Number(idx);
+        if (n < i) next[n] = v;
+        else if (n > i) next[n - 1] = v;
+      });
+      return next;
+    });
+  }
+
+  async function verify(i: number): Promise<boolean> {
+    const value = keys[i].trim();
+    if (!value) return true;
+    setChecks((prev) => ({ ...prev, [i]: { state: "checking" } }));
+    try {
+      const r = await api.validateOllamaKey(value);
+      setChecks((prev) => ({ ...prev, [i]: { state: r.valid ? "valid" : "invalid", error: r.error ?? undefined } }));
+      return r.valid;
+    } catch (e) {
+      setChecks((prev) => ({ ...prev, [i]: { state: "invalid", error: String(e) } }));
+      return false;
+    }
   }
 
   async function save() {
     setSaving(true);
     setError(null);
     try {
+      const results = await Promise.all(keys.map((_, i) => verify(i)));
+      if (results.some((ok) => !ok)) {
+        setError("One or more keys failed validation — fix or remove them before saving.");
+        return;
+      }
       const cleaned = keys.map((k) => k.trim()).filter(Boolean);
       await api.putOllamaKeys(cleaned);
       setKeys(cleaned);
+      setChecks({});
       setSavedAt(Date.now());
     } catch (e) {
       setError(String(e));
@@ -229,26 +320,36 @@ function ApiKeysTab() {
   return (
     <div className="flex flex-col gap-3 max-w-2xl">
       <p className="text-xs text-muted">
-        Ollama API keys, tried in order — when one hits its rate limit the pipeline rotates to the next. Saved
-        to <code>config.json</code> as <code>api_keys</code>.
+        Ollama API keys, tried in order — when one hits its rate limit the pipeline rotates to the next. Verified
+        against Ollama before saving. Saved to <code>config.json</code> as <code>api_keys</code>.
       </p>
       {keys.length === 0 && (
         <div className="text-sm text-muted">No keys yet — add at least one to run the scraper or build resumes.</div>
       )}
-      {keys.map((k, i) => (
-        <div key={i} className="flex gap-2">
-          <input className="input flex-1" value={k} onChange={(e) => update(i, e.target.value)} placeholder={`Key ${i + 1}`} />
-          <button className="btn-ghost px-2 py-1 text-bad hover:text-bad" onClick={() => remove(i)}>
-            Remove
-          </button>
-        </div>
-      ))}
+      {keys.map((k, i) => {
+        const check = checks[i] ?? { state: "idle" };
+        return (
+          <div key={i} className="flex flex-col gap-1">
+            <div className="flex gap-2">
+              <input className="input flex-1" value={k} onChange={(e) => update(i, e.target.value)} placeholder={`Key ${i + 1}`} />
+              <button className="btn-secondary shrink-0" onClick={() => verify(i)} disabled={check.state === "checking" || !k.trim()}>
+                {check.state === "checking" ? "Checking…" : "Verify"}
+              </button>
+              <button className="btn-ghost px-2 py-1 text-bad hover:text-bad" onClick={() => remove(i)}>
+                Remove
+              </button>
+            </div>
+            {check.state === "valid" && <span className="text-xs text-yes">✓ Valid</span>}
+            {check.state === "invalid" && <span className="text-xs text-no">✗ {check.error ?? "Invalid key"}</span>}
+          </div>
+        );
+      })}
       <div className="flex items-center gap-3">
         <button className="btn-secondary w-fit" onClick={() => setKeys((prev) => [...prev, ""])}>
           + Add key
         </button>
         <button className="btn-primary w-fit" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save keys"}
+          {saving ? "Verifying & saving…" : "Save keys"}
         </button>
         {savedAt && <span className="text-xs text-muted">Saved</span>}
       </div>
@@ -286,6 +387,36 @@ function SchedulerTab({ config, setConfig }: { config: Config; setConfig: Setter
         Automatically run the scraper every day
       </label>
       <LabeledInput label="Time (24h, local)" value={sched.time} onChange={(v) => set({ time: v })} />
+    </div>
+  );
+}
+
+function DesktopTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
+  const d = config.desktop ?? { runInBackground: false, launchOnStartup: false };
+  const set = (patch: Partial<{ runInBackground: boolean; launchOnStartup: boolean }>) =>
+    setConfig({ ...config, desktop: { ...d, ...patch } });
+  return (
+    <div className="flex flex-col gap-4 max-w-md">
+      <label className="flex items-center gap-2 text-sm text-fg-soft">
+        <input
+          type="checkbox"
+          checked={d.runInBackground}
+          onChange={(e) => set({ runInBackground: e.target.checked })}
+        />
+        Keep running in the background when the window is closed
+      </label>
+      <p className="text-xs text-muted -mt-2">
+        Closing the window minimizes to the system tray instead of quitting, so scraping and other scheduled jobs
+        keep running. Use the tray icon's Quit to fully exit.
+      </p>
+      <label className="flex items-center gap-2 text-sm text-fg-soft">
+        <input
+          type="checkbox"
+          checked={d.launchOnStartup}
+          onChange={(e) => set({ launchOnStartup: e.target.checked })}
+        />
+        Launch Kairos automatically when you log in
+      </label>
     </div>
   );
 }

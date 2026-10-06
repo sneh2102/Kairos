@@ -29,8 +29,10 @@ export default function Build() {
 
   async function start() {
     setError(null);
-    startApplyRun();
     try {
+      // Save config (output_dir, resume filename, etc) before building
+      if (config) await api.putConfig(config);
+      startApplyRun();
       const res = await api.startApply(["yes"]);
       setPendingCount(res.count);
     } catch (e) {

@@ -99,6 +99,16 @@ export const api = {
     }
     return URL.createObjectURL(await res.blob());
   },
+  validateOllamaKey: (apiKey: string) =>
+    request<{ valid: boolean; error: string | null }>("/api/validate/ollama-key", {
+      method: "POST",
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  validateGithubToken: (token: string) =>
+    request<{ valid: boolean; error: string | null }>("/api/validate/github-token", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
 
   getResumeData: () =>
     request<{

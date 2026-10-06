@@ -6,6 +6,8 @@ Run: uvicorn server:app --port 8756
 import asyncio
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -24,13 +26,17 @@ from config import CONFIG
 from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
 from graph.scrape_graph import build_scrape_graph
-from llm.client import RotatingOllamaClient
+from llm.client import RotatingOllamaClient, validate_api_key
 from tools import designer, google_drive, latex, templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = FastAPI(title="Job Scraper backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Playwright browsers are bundled with the installer
+# PLAYWRIGHT_BROWSERS_PATH env var (set by Electron) points to bundled location
+# No installation needed - they're pre-downloaded and included in the package
 
 # Public exposure guard: uvicorn stays on 127.0.0.1, so the only way in from
 # outside this PC is the Cloudflare Tunnel. Cloudflare stamps every proxied
@@ -271,7 +277,19 @@ def upload_applied_to_drive(applied_id: int):
 
 @app.get("/api/resume-data")
 def get_resume_data():
-    pcfg = CONFIG["pipeline"]
+    pcfg = CONFIG.get("pipeline", {
+        "resume_path": "resume.txt",
+        "projects_path": "projects.txt",
+        "output_dir": "",
+        "latex_template": "classic",
+        "max_ats_iterations": 5,
+        "ats_pass_threshold": 85,
+        "max_no_improve": 2,
+        "resume_filename": "Resume",
+        "cover_letter_filename": "Cover_Letter",
+        "use_jd_location": True,
+        "default_location": ""
+    })
 
     def safe_load(path: str) -> str:
         try:
@@ -280,9 +298,9 @@ def get_resume_data():
             return ""
 
     return {
-        "resume_text": safe_load(pcfg["resume_path"]),
-        "projects_text": safe_load(pcfg["projects_path"]),
-        "experience_roles": CONFIG["experience_roles"],
+        "resume_text": safe_load(pcfg.get("resume_path", "resume.txt")),
+        "projects_text": safe_load(pcfg.get("projects_path", "projects.txt")),
+        "experience_roles": CONFIG.get("experience_roles", []),
         "custom_sections": CONFIG.get("custom_sections", []),
         "section_order": CONFIG.get("section_order", []),
     }
@@ -310,13 +328,37 @@ def put_ollama_keys(payload: dict = Body(...)):
     return {"saved": True}
 
 
+@app.post("/api/validate/ollama-key")
+def validate_ollama_key_route(payload: dict = Body(...)):
+    valid, error = validate_api_key(payload.get("api_key", ""))
+    return {"valid": valid, "error": error}
+
+
+@app.post("/api/validate/github-token")
+def validate_github_token_route(payload: dict = Body(...)):
+    valid, error = github_importer.validate_token(payload.get("token", ""))
+    return {"valid": valid, "error": error}
+
+
 @app.put("/api/resume-data")
 def put_resume_data(payload: dict = Body(...)):
-    pcfg = CONFIG["pipeline"]
+    pcfg = CONFIG.get("pipeline", {
+        "resume_path": "resume.txt",
+        "projects_path": "projects.txt",
+        "output_dir": "",
+        "latex_template": "classic",
+        "max_ats_iterations": 5,
+        "ats_pass_threshold": 85,
+        "max_no_improve": 2,
+        "resume_filename": "Resume",
+        "cover_letter_filename": "Cover_Letter",
+        "use_jd_location": True,
+        "default_location": ""
+    })
     if "resume_text" in payload:
-        config.save_text_file(pcfg["resume_path"], payload["resume_text"])
+        config.save_text_file(pcfg.get("resume_path", "resume.txt"), payload["resume_text"])
     if "projects_text" in payload:
-        config.save_text_file(pcfg["projects_path"], payload["projects_text"])
+        config.save_text_file(pcfg.get("projects_path", "projects.txt"), payload["projects_text"])
     new_cfg = None
     for key in ("experience_roles", "custom_sections", "section_order"):
         if key in payload:

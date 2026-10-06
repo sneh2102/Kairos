@@ -16,6 +16,9 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
   const [projectsText, setProjectsText] = useState("");
   const [ollamaKey, setOllamaKeyInput] = useState("");
   const [keyAlreadySet, setKeyAlreadySet] = useState(false);
+  const [keyCheck, setKeyCheck] = useState<{ state: "idle" | "checking" | "valid" | "invalid"; error?: string }>({
+    state: "idle",
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,15 +31,37 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
     api.getOllamaKeyStatus().then((s) => setKeyAlreadySet(s.is_set));
   }, []);
 
+  async function verifyOllamaKey() {
+    const value = ollamaKey.trim();
+    if (!value) return;
+    setKeyCheck({ state: "checking" });
+    try {
+      const r = await api.validateOllamaKey(value);
+      setKeyCheck({ state: r.valid ? "valid" : "invalid", error: r.error ?? undefined });
+    } catch (e) {
+      setKeyCheck({ state: "invalid", error: String(e) });
+    }
+  }
+
   async function persist(markOnboarded: boolean) {
     if (!config) return;
     setSaving(true);
     setError(null);
     try {
+      const trimmedKey = ollamaKey.trim();
+      if (trimmedKey) {
+        const r = await api.validateOllamaKey(trimmedKey);
+        if (!r.valid) {
+          setKeyCheck({ state: "invalid", error: r.error ?? undefined });
+          setError(`Ollama API key failed validation (${r.error ?? "invalid"}) — fix it on the Model & API key step.`);
+          return;
+        }
+        setKeyCheck({ state: "valid" });
+      }
       await Promise.all([
         api.putConfig({ ...config, onboarded: markOnboarded }),
         api.putResumeData({ resume_text: resumeText, projects_text: projectsText }),
-        ...(ollamaKey.trim() ? [api.setOllamaKey(ollamaKey.trim())] : []),
+        ...(trimmedKey ? [api.setOllamaKey(trimmedKey)] : []),
       ]);
       if (markOnboarded) onDone?.();
       navigate("/");
@@ -139,13 +164,28 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
               />
             </Field>
             <Field label={`Ollama API key${keyAlreadySet ? " (already set — leave blank to keep it)" : ""}`}>
-              <input
-                type="password"
-                className="input"
-                value={ollamaKey}
-                onChange={(e) => setOllamaKeyInput(e.target.value)}
-                placeholder={keyAlreadySet ? "••••••••" : "sk-…"}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  className="input flex-1"
+                  value={ollamaKey}
+                  onChange={(e) => {
+                    setOllamaKeyInput(e.target.value);
+                    setKeyCheck({ state: "idle" });
+                  }}
+                  placeholder={keyAlreadySet ? "••••••••" : "sk-…"}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary shrink-0"
+                  onClick={verifyOllamaKey}
+                  disabled={keyCheck.state === "checking" || !ollamaKey.trim()}
+                >
+                  {keyCheck.state === "checking" ? "Checking…" : "Verify"}
+                </button>
+              </div>
+              {keyCheck.state === "valid" && <span className="text-xs text-yes">✓ Valid</span>}
+              {keyCheck.state === "invalid" && <span className="text-xs text-no">✗ {keyCheck.error ?? "Invalid key"}</span>}
             </Field>
           </div>
         )}

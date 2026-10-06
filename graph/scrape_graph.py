@@ -31,6 +31,10 @@ def build_scrape_graph(emit: Callable[[dict], None] | None = None,
 
     def job_scraper_node(state: ScrapeState) -> dict:
         emit({"type": "status", "stage": "scrape", "state": "scraping"})
+        # scrape_new_jobs() emits its own "Starting scrape: ..." line (with the
+        # actual per-(term,site) work count and concurrency cap) — a second,
+        # slightly different one here duplicated it and read like two
+        # conflicting counts for the same thing.
         jobs = scrape_new_jobs(CONFIG, jobs_db, applied_db, emit=emit)
         logging.info("Job Scraper Agent: %d new candidate jobs", len(jobs))
         emit({"type": "log", "level": "INFO", "message": f"Found {len(jobs)} new candidate jobs"})
@@ -38,8 +42,10 @@ def build_scrape_graph(emit: Callable[[dict], None] | None = None,
 
     def screener_node(state: ScrapeState) -> dict:
         emit({"type": "status", "stage": "scrape", "state": "screening"})
+        total = len(state["jobs"])
         screened = []
-        for job in state["jobs"]:
+        verdict_counts = {"yes": 0, "maybe": 0, "no": 0}
+        for i, job in enumerate(state["jobs"], start=1):
             if stop_event.is_set():
                 emit({"type": "log", "level": "WARNING", "message": "Stopped by user"})
                 break
@@ -55,6 +61,7 @@ def build_scrape_graph(emit: Callable[[dict], None] | None = None,
                       "message": f"Screener failed for {job.get('title')} @ {job.get('company')}: {e}"})
                 continue
             screened.append(row)
+            verdict_counts[verdict["verdict"]] = verdict_counts.get(verdict["verdict"], 0) + 1
             logging.info("[%s] %s @ %s (%s%%)", verdict["verdict"].upper(),
                          job.get("title"), job.get("company"), verdict.get("skills_match_pct"))
             emit({"type": "scrape_job", "verdict": verdict["verdict"], "company": job.get("company"),
@@ -62,7 +69,12 @@ def build_scrape_graph(emit: Callable[[dict], None] | None = None,
                   "skills_match_pct": verdict.get("skills_match_pct"),
                   "matched_skills": verdict.get("matched_skills", []),
                   "missing_skills": verdict.get("missing_skills", [])})
+            if i % 10 == 0 or i == total:
+                emit({"type": "log", "level": "INFO", "message": f"Screened {i}/{total} jobs…"})
             time.sleep(0.5)
+        emit({"type": "log", "level": "INFO",
+              "message": f"Screening complete — {verdict_counts['yes']} yes, "
+                         f"{verdict_counts['maybe']} maybe, {verdict_counts['no']} no"})
         emit({"type": "done", "stage": "scrape"})
         return {"screened": screened}
 
