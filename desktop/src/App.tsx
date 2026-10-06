@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
-import { api } from "./lib/api";
+import { api, isConfigured } from "./lib/api";
 import { EventStreamProvider } from "./lib/eventStream";
 import { ThemeProvider } from "./lib/theme";
+import Connect from "./pages/Connect";
 import Dashboard from "./pages/Dashboard";
 import ScreenerConfig from "./pages/ScreenerConfig";
 import Scraper from "./pages/Scraper";
 import Build from "./pages/Build";
+import Designer from "./pages/Designer";
 import ScrapedJobs from "./pages/ScrapedJobs";
 import JobDetail from "./pages/JobDetail";
 import LatexEditor from "./pages/LatexEditor";
@@ -23,11 +25,15 @@ import Mobile from "./pages/Mobile";
 export default function App() {
   return (
     <ThemeProvider>
-      <EventStreamProvider>
-        <HashRouter>
-          <AppShell />
-        </HashRouter>
-      </EventStreamProvider>
+      {isConfigured ? (
+        <EventStreamProvider>
+          <HashRouter>
+            <AppShell />
+          </HashRouter>
+        </EventStreamProvider>
+      ) : (
+        <Connect />
+      )}
     </ThemeProvider>
   );
 }
@@ -60,6 +66,7 @@ function AppShell() {
             <Route path="/applied/:id/editor" element={<LatexEditor kind="applied" />} />
             <Route path="/applied" element={<Applied />} />
             <Route path="/resume-data" element={<ResumeData />} />
+            <Route path="/designer" element={<Designer />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="/prompts" element={<Prompts />} />
             <Route path="/settings" element={<Settings />} />

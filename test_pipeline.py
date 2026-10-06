@@ -84,7 +84,7 @@ _GOOD_LATEX = r"""
 \resumeSubHeadingListEnd
 \section{Relevant Projects}
 \resumeSubHeadingListStart
-  \resumeProjectHeading{\textbf{MLPipe} $|$ \emph{Python, Kubernetes}}{}
+  \resumeProjectHeading{\textbf{MLPipe} | \emph{Python, Kubernetes}}{}
   \resumeItemListStart
     \resumeItem{Built a machine learning pipeline on Kubernetes serving 200 daily users with 95\% prediction accuracy in evaluation}
     \resumeItem{Reduced model training time by 60\% through CI/CD-driven parallel processing across 8 worker nodes in the cluster}

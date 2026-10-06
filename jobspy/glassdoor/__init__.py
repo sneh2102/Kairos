@@ -332,10 +332,15 @@ class Glassdoor(Scraper):
     
 
     def _get_location(self, location: str, is_remote: bool) -> tuple:
-        if is_remote:
-            return 11047, "STATE"   # Glassdoor "Remote" pseudo-state (US-hosted but returns remote globally)
-
         key = location.strip().lower() if location else ""
+
+        # Remote-only search with no location preference -> Glassdoor's US-hosted
+        # "Remote" pseudo-location. If a real location (e.g. "Canada") was given,
+        # honor it instead — using the US pseudo-id here was silently overriding
+        # every non-US location and returning only US remote jobs. Per-job remote
+        # detection still happens in _process_job via each listing's locationType.
+        if is_remote and not key:
+            return 11047, "STATE"   # Glassdoor "Remote" pseudo-state
 
         # 1. Exact match in hardcoded table
         if key in KNOWN_LOCATIONS:

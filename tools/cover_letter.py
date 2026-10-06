@@ -164,6 +164,12 @@ def _parse(text: str) -> list[tuple[str, str]]:
 
 
 def save_cover_letter_pdf(cover_letter_text: str, output_pdf_path: Path) -> bool:
+    # Empty/whitespace text (e.g. generation failed upstream) → an empty story,
+    # which ReportLab renders as a zero-page PDF ("has no pages" in macOS
+    # Preview). Bail to the .txt fallback instead of writing an unopenable PDF.
+    if not (cover_letter_text or "").strip():
+        output_pdf_path.with_suffix(".txt").write_text(cover_letter_text or "", encoding="utf-8")
+        return False
     try:
         blocks = _parse(cover_letter_text)
         doc = SimpleDocTemplate(str(output_pdf_path), pagesize=letter,

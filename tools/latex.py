@@ -135,8 +135,11 @@ def extract_sections(latex: str, header: str, extra_name_map: dict | None = None
 
 
 def reassemble(sections: dict[str, str], section_order: list[str]) -> str:
+    from config import CONFIG
     from tools.templates import get_active_preamble  # runtime import (templates.py imports us)
-    ordered_ids = list(section_order) + [k for k in sections if k not in section_order and k != "header"]
+    hidden = set(CONFIG.get("hidden_sections", []))   # sections switched off in the designer
+    ordered_ids = [k for k in list(section_order) + [k for k in sections if k not in section_order and k != "header"]
+                   if k not in hidden]
     body_parts = [sections.get(sid, "") for sid in ordered_ids if sections.get(sid)]
     header = sections.get("header", "")
     return get_active_preamble() + header + "\n".join(body_parts) + "\n\\end{document}\n"

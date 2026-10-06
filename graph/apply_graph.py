@@ -16,11 +16,13 @@ from typing import Callable
 
 from langgraph.graph import END, START, StateGraph
 
-from agents import ats_checker, custom_section_writer, experience_writer, optimizer, project_writer, skills_writer
+from agents import (ats_checker, custom_section_writer, experience_writer, latex_fixer, optimizer,
+                     project_writer, skills_writer)
 from config import CONFIG, collect_ollama_keys, load_text_file
 from db.manager import JobsDB
 from graph.state import ApplyState
-from llm.client import RotatingOllamaClient
+from llm.client import ClaudeCliClient, RotatingOllamaClient
+from tools.section_render import render_static
 from tools import cover_letter as cover_letter_tool
 from tools import latex
 
@@ -28,8 +30,10 @@ WRITER_SECTIONS = ("skills", "experience", "projects")
 
 
 def build_apply_graph(emit: Callable[[dict], None] | None = None,
-                       stop_event: threading.Event | None = None):
-    """`emit`/`stop_event`: see scrape_graph.build_scrape_graph — same contract."""
+                       stop_event: threading.Event | None = None, use_claude: bool = False):
+    """`emit`/`stop_event`: see scrape_graph.build_scrape_graph — same contract.
+    `use_claude`: resume sections + cover letter are written by the Claude CLI; ATS
+    scoring, optimizer and LaTeX fixing stay on the Ollama model."""
     emit = emit or (lambda event: None)
     stop_event = stop_event or threading.Event()
     jobs_db = JobsDB()
@@ -38,6 +42,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
         num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
         temperature=CONFIG["model"]["temperature"],
     )
+    writer = ClaudeCliClient(CONFIG.get("model", {}).get("claude", "")) if use_claude else client
     pcfg = CONFIG["pipeline"]
     existing_resume = load_text_file(pcfg["resume_path"])
     projects_text = load_text_file(pcfg["projects_path"])
@@ -45,10 +50,13 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     experience_roles = CONFIG["experience_roles"]
     custom_sections = CONFIG.get("custom_sections", [])
     section_order = CONFIG["section_order"]
+    hidden = set(CONFIG.get("hidden_sections", []))     # switched off in the resume designer
+    active_writers = [s for s in WRITER_SECTIONS if s not in hidden]
     max_iterations = pcfg["max_ats_iterations"]
     pass_threshold = pcfg["ats_pass_threshold"]
     max_no_improve = pcfg.get("max_no_improve", 2)
     output_dir = pcfg["output_dir"]
+    project_bullets = pcfg.get("project_bullets", 3)
 
     # ---- nodes ---------------------------------------------------------
 
@@ -76,11 +84,14 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
 
         for section_cfg in custom_sections:
             sid = section_cfg.get("id")
-            if not sid:
+            if not sid or sid in hidden:
+                continue
+            if section_cfg.get("kind") == "static":      # user-authored in the designer: no model call
+                sections[sid] = render_static(section_cfg)
                 continue
             try:
                 sections[sid] = custom_section_writer.write(
-                    client, section_cfg, profile.get("full_name", ""), title, company, description, existing_resume,
+                    writer, section_cfg, profile.get("full_name", ""), title, company, description, existing_resume,
                     experience_yrs=profile.get("experience_yrs", ""),
                 )
             except Exception as e:
@@ -88,7 +99,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
                 sections[sid] = ""
 
         try:
-            cover = cover_letter_tool.generate(client, title, company, description, existing_resume, profile)
+            cover = cover_letter_tool.generate(writer, title, company, description, existing_resume, profile)
         except Exception as e:
             logging.warning("Cover letter generation failed for %s @ %s: %s", title, company, e)
             cover = ""
@@ -110,7 +121,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     def route_after_next_job(state: ApplyState):
         if state["job_index"] >= len(state["jobs"]):
             return END
-        return list(WRITER_SECTIONS)
+        return active_writers or "optimize"
 
     def make_writer_node(section: str):
         def node(state: ApplyState) -> dict:
@@ -122,21 +133,22 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
             first_pass = state["ats_iteration"] == 0
             try:
                 if section == "skills":
-                    text = (skills_writer.write(client, title, company, description, existing_resume)
+                    text = (skills_writer.write(writer, title, company, description, existing_resume)
                             if first_pass else
-                            skills_writer.rebuild(client, title, company, description,
+                            skills_writer.rebuild(writer, title, company, description,
                                                    state["ats_feedback"].get("skills_feedback", ""),
                                                    state["sections"].get("skills", "")))
                 elif section == "experience":
-                    text = (experience_writer.write(client, title, company, description, existing_resume, experience_roles)
+                    text = (experience_writer.write(writer, title, company, description, existing_resume, experience_roles)
                             if first_pass else
-                            experience_writer.rebuild(client, title, company, description,
+                            experience_writer.rebuild(writer, title, company, description,
                                                        state["ats_feedback"].get("experience_feedback", ""),
                                                        state["sections"].get("experience", "")))
                 else:
-                    text = (project_writer.write(client, title, company, description, existing_resume, projects_text)
+                    text = (project_writer.write(writer, title, company, description, existing_resume,
+                                                  projects_text, bullets=project_bullets)
                             if first_pass else
-                            project_writer.rebuild(client, title, company, description,
+                            project_writer.rebuild(writer, title, company, description,
                                                     state["ats_feedback"].get("projects_feedback", ""),
                                                     state["sections"].get("projects", ""), projects_text))
             except Exception as e:
@@ -221,7 +233,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     def route_after_check_ats(state: ApplyState):
         stagnated = state["no_improve"] >= max_no_improve
         exhausted = state["ats_iteration"] >= max_iterations
-        flagged = [s for s in state.get("_sections_to_rewrite", []) if s in WRITER_SECTIONS]
+        flagged = [s for s in state.get("_sections_to_rewrite", []) if s in active_writers]
         if stop_event.is_set() or state["ats_passed"] or exhausted or stagnated or not flagged:
             return "save_output"
         return flagged
@@ -243,7 +255,17 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
         full_latex = latex.reassemble(sections_to_save, section_order)
 
         resume_pdf = latex.build_output_path(output_dir, company, title, pcfg["resume_filename"], "pdf")
-        compiled = latex.compile_latex_to_pdf(full_latex, resume_pdf)
+
+        def _log_fix_attempt(attempt: int, error: str):
+            emit({"type": "log", "level": "WARNING", "message": (
+                f"  LaTeX didn't compile for {title} @ {company} (attempt {attempt}): {error} "
+                "— asking the model to fix it"
+            )})
+
+        compiled, full_latex = latex_fixer.compile_with_autofix(
+            client, full_latex, resume_pdf, latex.compile_latex_to_pdf, latex.last_compile_error,
+            max_attempts=pcfg.get("max_latex_fix_attempts", 2), on_attempt=_log_fix_attempt,
+        )
 
         cover_pdf = latex.build_output_path(output_dir, company, title, pcfg["cover_letter_filename"], "pdf")
         cover_letter_tool.save_cover_letter_pdf(state["cover_letter"], cover_pdf)
@@ -278,7 +300,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     g.add_node("save_output", save_output)
 
     g.add_edge(START, "next_job")
-    g.add_conditional_edges("next_job", route_after_next_job, [*WRITER_SECTIONS, END])
+    g.add_conditional_edges("next_job", route_after_next_job, [*WRITER_SECTIONS, "optimize", END])
     for section in WRITER_SECTIONS:
         g.add_edge(section, "optimize")
     g.add_edge("optimize", "check_ats")

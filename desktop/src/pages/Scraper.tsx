@@ -18,6 +18,8 @@ const SITES = [
   { value: "bdjobs", label: "BDJobs" },
   { value: "jobright", label: "JobRight" },
   { value: "wellfound", label: "Wellfound" },
+  { value: "hiringcafe", label: "HiringCafe" },
+  { value: "greenhouse", label: "Greenhouse" },
 ];
 
 export default function Scraper() {
@@ -110,6 +112,11 @@ export default function Scraper() {
                   }
                 />
               </Field>
+              {config.scraper.sites.split(",").map((s) => s.trim()).includes("greenhouse") && (
+                <Field label="Greenhouse">
+                  <GreenhouseConnect />
+                </Field>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Hours old">
                   <input
@@ -237,6 +244,63 @@ export function SiteSelect({ value, onChange }: { value: string; onChange: (v: s
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function GreenhouseConnect() {
+  const [status, setStatus] = useState<{ connected: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function refresh() {
+    api.greenhouseStatus().then(setStatus).catch(() => {});
+  }
+  useEffect(refresh, []);
+
+  async function connect() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.greenhouseConnect();
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    try {
+      await api.greenhouseDisconnect();
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        {status?.connected ? (
+          <>
+            <span className="text-xs text-yes">Connected</span>
+            <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={disconnect} disabled={busy}>
+              Disconnect
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={connect} disabled={busy}>
+            {busy ? "Waiting for login…" : "Connect Greenhouse"}
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-muted">
+        Opens a browser window — log into my.greenhouse.io there, then it closes automatically.
+      </p>
+      {error && <p className="text-xs text-no">{error}</p>}
     </div>
   );
 }

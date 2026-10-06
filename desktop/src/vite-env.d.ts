@@ -7,6 +7,12 @@ type MobileStatus = {
   error: string | null;
 };
 
+type WebBridgeStatus = {
+  phase: "idle" | "starting" | "ready" | "error";
+  url: string | null;
+  error: string | null;
+};
+
 interface Window {
   desktop?: {
     getBackendUrl: () => Promise<string>;
@@ -18,6 +24,14 @@ interface Window {
       stop: () => Promise<MobileStatus>;
       status: () => Promise<MobileStatus>;
       onStatus: (cb: (s: MobileStatus) => void) => () => void;
+    };
+    web: {
+      start: () => Promise<WebBridgeStatus>;
+      stop: () => Promise<WebBridgeStatus>;
+      status: () => Promise<WebBridgeStatus>;
+      token: () => Promise<string>;
+      setToken: (token: string) => Promise<string>;
+      onStatus: (cb: (s: WebBridgeStatus) => void) => () => void;
     };
   };
 }

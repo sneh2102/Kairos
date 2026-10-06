@@ -124,6 +124,7 @@ export interface Config {
     results_wanted: number;
     is_remote: boolean;
     search_terms: string;
+    greenhouse_cookie: string;
   };
   model: {
     scraping: string;
@@ -162,6 +163,7 @@ export interface Config {
   experience_roles: ExperienceRole[];
   custom_sections: CustomSection[];
   github: { token: string };
+  google: { client_id: string; client_secret: string };
   prompts: { job_screener: string; [key: string]: string };
   screener: {
     max_years_exp: number;

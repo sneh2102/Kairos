@@ -81,11 +81,44 @@ export interface ExperienceRole {
   fabricated_bullets: number;
 }
 
+export interface StaticEntry {
+  title: string;
+  subtitle: string;
+  date: string;
+  location: string;
+  link: string;
+  bullets: string[];
+}
+
+// kind "static" = written by you in the Resume Designer (no AI); otherwise the AI writes it per job.
 export interface CustomSection {
   id: string;
   name: string;
-  system_prompt: string;
-  user_prompt: string;
+  system_prompt?: string;
+  user_prompt?: string;
+  kind?: "ai" | "static";
+  layout?: "bullets" | "text" | "entries";
+  bullets?: string[];
+  entries?: StaticEntry[];
+}
+
+export interface LayoutStyle {
+  font: "computer-modern" | "helvetica" | "times" | "palatino";
+  font_size: 10 | 11 | 12;
+  margin: "narrow" | "normal" | "wide";
+  density: "compact" | "normal" | "relaxed";
+  accent: string;
+  heading_style: "rule" | "thick" | "none";
+  heading_case: "smallcaps" | "caps" | "normal";
+  header_align: "center" | "left";
+  bullet: "bullet" | "dash" | "circle" | "triangle";
+}
+
+export interface Layout {
+  style: LayoutStyle;
+  section_order: string[];
+  hidden_sections: string[];
+  custom_sections: CustomSection[];
 }
 
 export interface TemplateInfo {
@@ -124,6 +157,7 @@ export interface Config {
     results_wanted: number;
     is_remote: boolean;
     search_terms: string;
+    greenhouse_cookie: string;
   };
   model: {
     scraping: string;
@@ -143,8 +177,10 @@ export interface Config {
     cover_letter_filename: string;
     use_jd_location: boolean;
     default_location: string;
+    project_bullets: number;
   };
   section_order: string[];
+  google: { client_id: string; client_secret: string };
   profile: {
     full_name: string;
     phone: string;

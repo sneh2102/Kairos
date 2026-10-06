@@ -5,7 +5,7 @@ value via config.get_prompt(key, default) — this module just re-exports that
 same metadata so server.py can serve/validate/reset any of them generically
 without hardcoding per-key logic there.
 """
-from agents import ats_checker, experience_writer, project_writer, screener, skills_writer
+from agents import ats_checker, experience_writer, latex_fixer, project_writer, screener, skills_writer
 from agents._writer_common import SYSTEM_SURGICAL
 from config import CONFIG
 from tools.cover_letter import SYSTEM_COVER_LETTER
@@ -22,21 +22,21 @@ REGISTRY: dict[str, dict] = {
     },
     "skills_section": {
         "label": "Skills Section",
-        "description": "System prompt for writing the Technical Skills LaTeX section.",
+        "description": "System prompt for writing the Technical Skills section (the output format is fixed by the app).",
         "default": skills_writer.SYSTEM_SKILLS,
         "placeholders": [],
         "format_safe": True,  # used as-is, never passed through str.format()
     },
     "experience_section": {
         "label": "Experience Section",
-        "description": "System prompt for writing the Experience LaTeX section.",
+        "description": "System prompt for writing the Experience section (the output format is fixed by the app).",
         "default": experience_writer.SYSTEM_EXPERIENCE,
         "placeholders": [],
         "format_safe": True,
     },
     "projects_section": {
         "label": "Projects Section",
-        "description": "System prompt for writing the Relevant Projects LaTeX section.",
+        "description": "System prompt for writing the Relevant Projects section (the output format is fixed by the app).",
         "default": project_writer.SYSTEM_PROJECTS,
         "placeholders": [],
         "format_safe": True,
@@ -57,6 +57,14 @@ REGISTRY: dict[str, dict] = {
         # Rendered with str.format(**kwargs) — an unescaped '{'/'}' (e.g. pasted
         # LaTeX) would raise KeyError/IndexError at generation time.
         "format_safe": False,
+    },
+    "latex_fix": {
+        "label": "LaTeX Fixer (compile-error auto-repair)",
+        "description": "Repairs the assembled resume when it fails to compile (undefined macro, "
+                        "unbalanced braces, unescaped special char), given the compiler's own error.",
+        "default": latex_fixer.SYSTEM_LATEX_FIX,
+        "placeholders": [],
+        "format_safe": True,
     },
     "ats_checker": {
         "label": "ATS Checker (feedback only)",

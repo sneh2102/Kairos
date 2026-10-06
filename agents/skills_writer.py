@@ -1,13 +1,14 @@
-"""Skills Writer Agent — tailors the Technical Skills section to the JD."""
-from agents._writer_common import SYSTEM_SURGICAL, clean
+"""Skills Writer Agent — tailors the Technical Skills section to the JD.
+
+The model returns JSON; tools.section_render turns it into LaTeX."""
+from agents._writer_common import SYSTEM_SURGICAL, ask_json
 from config import get_prompt
 from llm.client import RotatingOllamaClient
+from tools.section_render import render_skills
 
 # Default — editable via the Prompts page (config.json prompts.skills_section).
 SYSTEM_SKILLS = r"""You are an expert resume writer specializing in ATS optimization.
-Output ONLY raw LaTeX for the Technical Skills section.
-NO \documentclass, NO \usepackage, NO \begin{document}, NO \end{document}.
-Output ONLY the \section{Technical Skills} block — nothing else.
+You write the Technical Skills section as structured data.
 
 INSTRUCTIONS
 1. Read the JD carefully. Extract every distinct technical skill, tool, framework, platform, methodology mentioned.
@@ -21,22 +22,14 @@ INSTRUCTIONS
 6. Category names should mirror JD language.
 7. Never add a technology not present anywhere in the candidate's existing resume — one
    optional trailing "Familiar With:" category is allowed for adjacent-but-unused tools.
+8. 8-12 items per category maximum. No special characters such as arrows or em dashes."""
 
-RULES:
-- All % -> \%, all & -> \&. No special chars: no ->, no <>, no em dashes.
-- Use exact JD terminology where possible. 8-12 items per category maximum.
+# Fixed by the code (not editable) — the renderer depends on this exact shape.
+JSON_SPEC = """
 
-OUTPUT FORMAT:
-\section{Technical Skills}
- \begin{itemize}[leftmargin=0.15in, label={}]
-    \small{\item{
-     \textbf{Category 1}{: tool1, tool2, tool3, tool4} \\
-     \textbf{Category 2}{: tool1, tool2, tool3, tool4} \\
-     \textbf{Category 3}{: tool1, tool2, tool3, tool4} \\
-     \textbf{Category 4}{: tool1, tool2, tool3, tool4} \\
-     \textbf{Category 5}{: tool1, tool2, tool3, tool4}
-    }}
- \end{itemize}"""
+RESPONSE FORMAT — overrides any output-format instructions above. Reply with ONLY this JSON
+object, no prose, no code fences, no LaTeX:
+{"categories": [{"name": "Category name", "items": ["skill", "skill", "skill"]}]}"""
 
 
 def write(client: RotatingOllamaClient, title: str, company: str, description: str,
@@ -47,16 +40,15 @@ def write(client: RotatingOllamaClient, title: str, company: str, description: s
         f"ATS FEEDBACK FROM PREVIOUS ATTEMPT (must address every point):\n"
         f"{ats_feedback or 'None — first attempt.'}"
     )
-    return clean(client.complete(system=get_prompt("skills_section", SYSTEM_SKILLS), user=user))
+    return ask_json(client, get_prompt("skills_section", SYSTEM_SKILLS) + JSON_SPEC, user, render_skills)
 
 
 def rebuild(client: RotatingOllamaClient, title: str, company: str, description: str,
             feedback: str, current_latex: str) -> str:
     user = (
-        f"CURRENT Technical Skills SECTION:\n{current_latex}\n\n"
+        f"CURRENT Technical Skills SECTION (for reference):\n{current_latex}\n\n"
         f"FEEDBACK TO ADDRESS:\n{feedback}\n\n"
         f"JOB TITLE: {title}\nCOMPANY: {company}\nJOB DESCRIPTION:\n{description}\n\n"
-        "Apply only the requested changes and return the full corrected "
-        "\\section{Technical Skills} block."
+        "Apply only the requested changes and return the full corrected section as JSON."
     )
-    return clean(client.complete(system=get_prompt("surgical_rewrite", SYSTEM_SURGICAL), user=user))
+    return ask_json(client, get_prompt("surgical_rewrite", SYSTEM_SURGICAL) + JSON_SPEC, user, render_skills)

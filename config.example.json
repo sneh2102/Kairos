@@ -8,7 +8,8 @@
     "hours_old": 24,
     "results_wanted": 100,
     "is_remote": false,
-    "search_terms": "Developer"
+    "search_terms": "Developer",
+    "greenhouse_cookie": ""
   },
   "model": {
     "scraping": "gemma4:31b-cloud",
@@ -19,6 +20,13 @@
   },
   "github": {
     "token": ""
+  },
+  "google": {
+    "client_id": "",
+    "client_secret": "",
+    "refresh_token": "",
+    "connected_email": "",
+    "folder_id": ""
   },
   "pipeline": {
     "max_ats_iterations": 5,
@@ -31,7 +39,8 @@
     "cover_letter_filename": "Cover_Letter",
     "use_jd_location": true,
     "default_location": "",
-    "latex_template": "classic"
+    "latex_template": "classic",
+    "project_bullets": 3
   },
   "section_order": [
     "summary",

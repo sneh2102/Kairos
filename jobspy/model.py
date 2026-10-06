@@ -289,6 +289,8 @@ class Site(Enum):
     BDJOBS = "bdjobs"
     JOBRIGHT = "jobright"
     WELLFOUND = "wellfound"
+    HIRINGCAFE = "hiringcafe"
+    GREENHOUSE = "greenhouse"
 
 class SalarySource(Enum):
     DIRECT_DATA = "direct_data"
@@ -309,6 +311,11 @@ class ScraperInput(BaseModel):
     linkedin_fetch_description: bool = False
     linkedin_company_ids: list[int] | None = None
     description_format: DescriptionFormat | None = DescriptionFormat.MARKDOWN
+
+    # Greenhouse's cross-company job search (my.greenhouse.io) is gated
+    # behind a personal login. Paste the "Cookie" request header from a
+    # logged-in browser session (needs at least _session_id).
+    greenhouse_cookie: str | None = None
 
     request_timeout: int = 60
 

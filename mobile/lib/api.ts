@@ -104,6 +104,11 @@ export const api = {
 
   getScheduler: () => get<{ enabled: boolean; time: string }>("/api/scheduler"),
   putScheduler: (payload: { enabled: boolean; time: string }) => send("PUT", "/api/scheduler", payload),
+
+  googleStatus: () => get<{ configured: boolean; connected: boolean; email: string }>("/api/google/status"),
+  greenhouseStatus: () => get<{ connected: boolean }>("/api/greenhouse/status"),
+  uploadJobToDrive: (id: number) => send<{ resume_link?: string; cover_link?: string }>("POST", `/api/jobs/${id}/upload-to-drive`),
+  uploadAppliedToDrive: (id: number) => send<{ resume_link?: string; cover_link?: string }>("POST", `/api/applied/${id}/upload-to-drive`),
 };
 
 function safeName(s: string) {
@@ -128,6 +133,24 @@ export async function downloadPdf(apiPath: string, filename: string): Promise<st
   file.write(bytes);
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(file.uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
+  }
+  return file.uri;
+}
+
+function toCsv(rows: JobRow[]): string {
+  const cols = Object.keys(rows[0]) as (keyof JobRow)[];
+  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\r\n");
+}
+
+// Write jobs to a CSV file and open the share sheet ("Save to Files" keeps it on-device).
+export async function shareJobsCsv(rows: JobRow[], filename: string): Promise<string> {
+  const file = new File(Paths.document, safeName(filename) + ".csv");
+  if (file.exists) file.delete();
+  file.create();
+  file.write(toCsv(rows));
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(file.uri, { mimeType: "text/csv", UTI: "public.comma-separated-values-text" });
   }
   return file.uri;
 }
