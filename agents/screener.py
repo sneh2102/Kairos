@@ -78,7 +78,11 @@ BORDERLINE + anything else → no
 FAIL + anything → no
 
 If number of years of experience is not given, infer a reasonable number from the JD yourself — do not write "unspecified".
-Also extract the key technical keywords from the Job Description."""
+Also extract the key technical keywords from the Job Description.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT — return ONLY valid JSON, no markdown, no backticks
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{"verdict": "yes or maybe or no", "years_required": "number or range", "role_level": "junior or mid or senior", "skills_match_pct": 75, "matched_skills": ["Python", "React"], "missing_skills": ["Go", "Terraform"], "reasoning": "Strong match on full-stack skills. Missing Terraform but compensated by Docker/K8s experience."}"""
 
 SCHEMA_SUFFIX = (
     "\n\nIMPORTANT: Respond with ONLY a JSON object. No explanation. No markdown. No backticks.\n"
