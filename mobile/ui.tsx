@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
   type TextInputProps,
+  type RefreshControlProps,
 } from "react-native";
 import type { Nav } from "./lib/nav";
 
@@ -60,7 +61,7 @@ export function Screen({
   onBack?: () => void;
   children: ReactNode;
   scroll?: boolean;
-  refreshControl?: React.ReactElement;
+  refreshControl?: React.ReactElement<RefreshControlProps>;
 }) {
   const openMenu = useMenu();
   return (

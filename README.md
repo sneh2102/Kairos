@@ -180,6 +180,7 @@ hand; the desktop app rewrites `API_BASE` in `mobile/config.ts` on every start.
 
 Mobile app only (optional — use Kairos from your phone):
 
+- **Node.js 22.13+** (Expo SDK 57 requirement)
 - [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
   — the desktop app tunnels the backend and Expo dev server through it (no
   account needed for quick tunnels)
