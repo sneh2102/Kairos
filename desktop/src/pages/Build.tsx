@@ -6,6 +6,8 @@ import type { Config } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
 
 const STAGE_LABEL: Record<string, string> = {
+  queued: "Queued",
+  cancelled: "Cancelled",
   building: "Building sections",
   checking_ats: "Checking ATS",
   ats_score: "Scored",
@@ -97,6 +99,20 @@ export default function Build() {
                   }
                 />
               </Field>
+              <Field label="Parallel builds (restart app to apply)">
+                <input
+                  type="number"
+                  min={1}
+                  className="input"
+                  value={config.pipeline.build_workers ?? 2}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      pipeline: { ...config.pipeline, build_workers: Math.max(1, Number(e.target.value)) },
+                    })
+                  }
+                />
+              </Field>
               <label className="flex items-center gap-2 text-sm text-fg-soft">
                 <input
                   type="checkbox"
@@ -182,7 +198,7 @@ export default function Build() {
                   </div>
                   <StatusBadge
                     label={p.stage === "done" ? (passed ? "PASS" : "SAVED") : STAGE_LABEL[p.stage] ?? p.stage}
-                    tone={p.stage === "done" ? (passed ? "pass" : "maybe") : "running"}
+                    tone={p.stage === "done" ? (passed ? "pass" : "maybe") : p.stage === "cancelled" ? "idle" : "running"}
                   />
                 </div>
                 {typeof p.score === "number" && (

@@ -133,7 +133,12 @@ export default function ResumeData() {
       {tab === "projects" && (
         <div className="flex flex-col gap-4">
           {config && (
-            <div className="max-w-xs">
+            <div className="max-w-md grid grid-cols-2 gap-3">
+              <LabeledNumber
+                label="Number of projects"
+                value={config.pipeline.project_count ?? 3}
+                onChange={(v) => setConfig({ ...config, pipeline: { ...config.pipeline, project_count: Math.max(1, v) } })}
+              />
               <LabeledNumber
                 label="Bullets per project"
                 value={config.pipeline.project_bullets}

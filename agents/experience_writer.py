@@ -62,6 +62,10 @@ HARD GUARDRAILS (never break):
   architecture, run a large team, or ship a multi-year migration. A short role gets
   smaller, believable scope.
 - Metrics must be believable for that scope.
+- NEVER name the hiring company's own products, SDKs, internal tools or brand (e.g. a
+  library named after the company, like "Affirm.js" for Affirm) as something the candidate used,
+  built or integrated. Nobody outside the company has worked with it. Describe the generic skill
+  instead (payments widget integration, checkout messaging module, and so on).
 
 STYLE - WRITE LIKE A PERSON, NOT A TEMPLATE:
 - Each bullet = 1.5 to 2 full lines (about 200-260 characters). Never one-liners.

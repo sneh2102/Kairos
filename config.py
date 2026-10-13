@@ -61,6 +61,7 @@ _DEFAULT_PIPELINE = {
     "max_ats_iterations": 5,
     "ats_pass_threshold": 85,
     "max_no_improve": 2,
+    "build_workers": 2,
     "output_dir": "",
     "resume_path": "resume.txt",
     "projects_path": "projects.txt",

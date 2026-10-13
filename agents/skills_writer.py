@@ -20,8 +20,8 @@ INSTRUCTIONS
 4. Front-load the most JD-relevant keywords first in each category.
 5. Include JD-specific tools even if the candidate used equivalents (show both if possible).
 6. Category names should mirror JD language.
-7. Never add a technology not present anywhere in the candidate's existing resume — one
-   optional trailing "Familiar With:" category is allowed for adjacent-but-unused tools.
+7. Never add a technology not present anywhere in the candidate's existing resume. Do NOT
+   create a "Familiar With" category; every category lists tools the candidate uses.
 8. 8-12 items per category maximum. No special characters such as arrows or em dashes."""
 
 # Fixed by the code (not editable) — the renderer depends on this exact shape.

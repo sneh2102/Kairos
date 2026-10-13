@@ -2,8 +2,6 @@
 writer agents and the ATS checker, and force-fixes everything the rule engine
 scores that code can fix directly:
 
-  - injects missing JD keywords into the Skills section ("Familiar With:" line,
-    so it signals awareness, not faked ownership)
   - swaps AI-tell/corporate phrases for plain language
   - de-duplicates repeated bullet-opening verbs
   - grammar-lite: doubled words, lowercase bullet starts, trailing periods
@@ -95,32 +93,6 @@ _DISPLAY = {"aws": "AWS", "gcp": "GCP", "sql": "SQL", "nosql": "NoSQL", "api": "
 
 def _display(kw: str) -> str:
     return _DISPLAY.get(kw, kw.title() if kw.islower() else kw)
-
-
-# ------------------------------------------------------- keyword injection ----
-
-def inject_missing_keywords(skills_latex: str, missing: list[str], cap: int = 8) -> str:
-    """Adds up to `cap` missing JD keywords to a 'Familiar With:' line in the
-    Skills section — awareness framing, not claimed ownership. Extends the
-    line if the writer already made one."""
-    if not missing or not skills_latex.strip():
-        return skills_latex
-    # escape: JD keywords routinely contain LaTeX specials (C#, R&D, C++/.NET)
-    # and are injected raw, bypassing the writers' clean() pass.
-    add = escape_latex_specials(", ".join(_display(k) for k in missing[:cap]))
-
-    fam = re.search(r"(\\textbf\{Familiar With:?\}\{:?\s*)([^}]*)(\})", skills_latex)
-    if fam:
-        existing = fam.group(2).rstrip()
-        merged = f"{existing}, {add}" if existing else f" {add}"
-        return skills_latex[:fam.start(2)] + merged + skills_latex[fam.end(2):]
-
-    cats = list(re.finditer(r"\\textbf\{[^}]*\}\{[^}]*\}", skills_latex))
-    if not cats:
-        return skills_latex
-    last = cats[-1]
-    insertion = f" \\\\\n     \\textbf{{Familiar With}}{{: {add}}}"
-    return skills_latex[:last.end()] + insertion + skills_latex[last.end():]
 
 
 # --------------------------------------------------- deterministic cleanup ----
@@ -315,10 +287,6 @@ def optimize_sections(client: RotatingOllamaClient, sections: dict[str, str],
     for name, body in sections.items():
         if body and body.strip():
             out[name] = enforce_experience_years(fix_ai_tells(body), real_years)
-
-    skills = out.get("skills", sections.get("skills", ""))
-    if skills.strip():
-        out["skills"] = inject_missing_keywords(skills, missing)
 
     body_sections = {}
     for name in ("experience", "projects"):

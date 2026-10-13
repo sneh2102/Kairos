@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
-import { BACKEND_URL } from "./api";
+import { BACKEND_URL, api } from "./api";
 import type { WsEvent } from "./types";
 
 interface LogLine {
@@ -122,6 +122,11 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       Notification.requestPermission();
     }
+  }, []);
+
+  // builds keep running (and resume after a restart) server-side; pick that state back up on load
+  useEffect(() => {
+    api.applyQueue().then((q) => q.running && dispatch({ type: "mark_apply_running", running: true })).catch(() => {});
   }, []);
 
   useEffect(() => {

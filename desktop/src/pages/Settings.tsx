@@ -97,11 +97,38 @@ export default function Settings() {
 
 type Setter = Dispatch<SetStateAction<Config | null>>;
 
+const TASKS: [string, string][] = [
+  ["screener", "Job screener"],
+  ["projects", "Projects"],
+  ["experience", "Experience"],
+  ["skills", "Skills"],
+  ["summary", "Summary & custom sections"],
+  ["cover_letter", "Cover letter"],
+  ["ats", "ATS checker, optimizer & LaTeX fixer"],
+];
+
 function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
   const m = config.model;
   const set = (patch: Partial<Config["model"]>) => setConfig({ ...config, model: { ...m, ...patch } });
   const github = config.github ?? { token: "" };
   const [check, setCheck] = useState<KeyCheck>({ state: "idle" });
+  const [geminiCheck, setGeminiCheck] = useState<KeyCheck>({ state: "idle" });
+  const provider = m.provider ?? "ollama";
+  const used = TASKS.map(([id]) => (m.task_providers?.[id] ?? "default") === "default" ? provider : m.task_providers![id]);
+  const usesGemini = used.includes("gemini");
+  const usesOllama = used.includes("ollama");
+
+  async function verifyGeminiKey() {
+    setGeminiCheck({ state: "checking" });
+    try {
+      const keys = (m.gemini_api_keys ?? []).filter(Boolean);
+      const rs = await Promise.all(keys.map((k) => api.validateGeminiKey(k)));
+      const bad = rs.findIndex((r) => !r.valid);
+      setGeminiCheck(bad < 0 ? { state: "valid" } : { state: "invalid", error: `key ${bad + 1}: ${rs[bad].error ?? "invalid"}` });
+    } catch (e) {
+      setGeminiCheck({ state: "invalid", error: String(e) });
+    }
+  }
 
   async function verifyGithubToken() {
     const value = github.token.trim();
@@ -117,13 +144,98 @@ function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) 
 
   return (
     <div className="grid grid-cols-2 gap-3 max-w-3xl">
-      <LabeledInput label="Screening model" value={m.scraping} onChange={(v) => set({ scraping: v })} />
-      <LabeledInput label="Resume/ATS model" value={m.pipeline} onChange={(v) => set({ pipeline: v })} />
+      <div className="col-span-2">
+        <span className="label">AI provider</span>
+        <select className="input" value={provider} onChange={(e) => set({ provider: e.target.value as "ollama" | "gemini" })}>
+          <option value="ollama">Ollama (cloud)</option>
+          <option value="gemini">Google Gemini (AI Studio)</option>
+        </select>
+      </div>
+      {usesGemini && (
+        <>
+          <div className="col-span-2">
+            <span className="label">Gemini model (used for screening, resume and ATS). Clear the box to see all options.</span>
+            <input
+              className="input"
+              list="gemini-models"
+              value={m.gemini_model ?? "gemini-3.1-flash-lite"}
+              onChange={(e) => set({ gemini_model: e.target.value })}
+            />
+            <datalist id="gemini-models">
+              <option value="gemini-3.8-flash" />
+              <option value="gemini-3.7-flash" />
+              <option value="gemini-3.6-flash" />
+              <option value="gemini-3.5-flash" />
+              <option value="gemini-3.5-flash-lite" />
+              <option value="gemini-3-flash-preview" />
+              <option value="gemini-3.1-flash-lite" />
+              <option value="gemini-flash-latest" />
+              <option value="gemini-flash-lite-latest" />
+              <option value="gemma-4-26b-a4b-it" />
+              <option value="gemma-4-31b-it" />
+            </datalist>
+          </div>
+          <div className="col-span-2 flex flex-col gap-1">
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                <span className="label">Gemini API keys, one per line (rotated on rate limits)</span>
+                <textarea
+                  className="input font-mono text-xs resize-none"
+                  rows={3}
+                  value={(m.gemini_api_keys ?? []).join("\n")}
+                  onChange={(e) => {
+                    set({ gemini_api_keys: e.target.value.split("\n").map((k) => k.trim()) });
+                    setGeminiCheck({ state: "idle" });
+                  }}
+                />
+              </div>
+              <button
+                className="btn-secondary shrink-0"
+                onClick={verifyGeminiKey}
+                disabled={geminiCheck.state === "checking" || !(m.gemini_api_keys ?? []).some(Boolean)}
+              >
+                {geminiCheck.state === "checking" ? "Checking…" : "Verify"}
+              </button>
+            </div>
+            {geminiCheck.state === "valid" && <span className="text-xs text-yes">✓ Valid</span>}
+            {geminiCheck.state === "invalid" && <span className="text-xs text-no">✗ {geminiCheck.error ?? "Invalid key"}</span>}
+          </div>
+        </>
+      )}
+      {usesOllama && (
+        <>
+          <LabeledInput label="Screening model" value={m.scraping} onChange={(v) => set({ scraping: v })} />
+          <LabeledInput label="Resume/ATS model" value={m.pipeline} onChange={(v) => set({ pipeline: v })} />
+          <LabeledNumber label="Context window" value={m.num_ctx} onChange={(v) => set({ num_ctx: v })} />
+        </>
+      )}
+      <div className="col-span-2">
+        <span className="label">Provider per task (Default = the provider selected above)</span>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          {TASKS.map(([id, label]) => (
+            <label key={id} className="flex items-center justify-between gap-2 text-sm text-fg-soft">
+              {label}
+              <select
+                className="input w-40"
+                value={m.task_providers?.[id] ?? "default"}
+                onChange={(e) =>
+                  set({ task_providers: { ...m.task_providers, [id]: e.target.value as "default" | "ollama" | "gemini" } })
+                }
+              >
+                <option value="default">Default</option>
+                <option value="ollama">Ollama</option>
+                <option value="gemini">Gemini</option>
+              </select>
+            </label>
+          ))}
+        </div>
+      </div>
       <LabeledNumber label="Temperature (x100)" value={Math.round(m.temperature * 100)} onChange={(v) => set({ temperature: v / 100 })} />
-      <LabeledNumber label="Context window" value={m.num_ctx} onChange={(v) => set({ num_ctx: v })} />
-      <p className="col-span-2 text-xs text-muted">
-        Ollama API keys live on the <strong className="text-fg-soft">API keys</strong> tab.
-      </p>
+      {usesOllama && (
+        <p className="col-span-2 text-xs text-muted">
+          Ollama API keys live on the <strong className="text-fg-soft">API keys</strong> tab.
+        </p>
+      )}
       <div className="col-span-2 flex flex-col gap-1">
         <div className="flex gap-2 items-end">
           <div className="flex-1">

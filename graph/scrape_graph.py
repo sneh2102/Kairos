@@ -10,7 +10,7 @@ from agents.job_scraper import scrape_new_jobs
 from config import CONFIG, collect_ollama_keys, load_text_file
 from db.manager import AppliedDB, JobsDB
 from graph.state import ScrapeState
-from llm.client import RotatingOllamaClient
+from llm.client import make_client
 
 
 def build_scrape_graph(emit: Callable[[dict], None] | None = None,
@@ -22,11 +22,7 @@ def build_scrape_graph(emit: Callable[[dict], None] | None = None,
     stop_event = stop_event or threading.Event()
     jobs_db = JobsDB()
     applied_db = AppliedDB()
-    client = RotatingOllamaClient(
-        collect_ollama_keys(), CONFIG["model"]["scraping"],
-        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
-        temperature=CONFIG["model"]["temperature"],
-    )
+    client = make_client(CONFIG["model"]["scraping"], "screener")
     resume_text = load_text_file(CONFIG["pipeline"]["resume_path"])
 
     def job_scraper_node(state: ScrapeState) -> dict:

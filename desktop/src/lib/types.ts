@@ -165,11 +165,16 @@ export interface Config {
     num_predict: number;
     num_ctx: number;
     temperature: number;
+    provider?: "ollama" | "gemini";
+    gemini_model?: string;
+    gemini_api_keys?: string[];
+    task_providers?: Record<string, "default" | "ollama" | "gemini">;
   };
   pipeline: {
     max_ats_iterations: number;
     ats_pass_threshold: number;
     max_no_improve: number;
+    build_workers: number;
     output_dir: string;
     resume_path: string;
     projects_path: string;
@@ -178,6 +183,7 @@ export interface Config {
     use_jd_location: boolean;
     default_location: string;
     project_bullets: number;
+    project_count?: number;
   };
   section_order: string[];
   google: { client_id: string; client_secret: string };
@@ -234,7 +240,7 @@ export type WsEvent =
       type: "apply_progress";
       company: string;
       title: string;
-      stage: "building" | "checking_ats" | "ats_score" | "done";
+      stage: "queued" | "cancelled" | "building" | "checking_ats" | "ats_score" | "done";
       job_index: number;
       total: number;
       iteration?: number;
