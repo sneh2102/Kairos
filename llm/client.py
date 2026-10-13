@@ -81,6 +81,103 @@ def validate_api_key(api_key: str) -> tuple[bool, str | None]:
     return True, None
 
 
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def validate_gemini_key(api_key: str) -> tuple[bool, str | None]:
+    """Listing models needs a valid key (a bad one gets 400 API_KEY_INVALID)."""
+    if not api_key.strip():
+        return False, "Key is empty"
+    try:
+        resp = requests.get(f"{GEMINI_BASE}/models", headers={"x-goog-api-key": api_key.strip()},
+                            params={"pageSize": 1}, timeout=15)
+    except requests.RequestException as e:
+        return False, f"Could not reach Google AI Studio: {e}"
+    if resp.status_code in (400, 401, 403):
+        return False, "Google AI Studio rejected this key"
+    return True, None
+
+
+class GeminiClient:
+    """Google AI Studio (Gemini / Gemma) with the same complete()/complete_json()
+    surface as RotatingOllamaClient, so every agent works with either."""
+
+    def __init__(self, api_keys: list[str], model: str, num_predict: int = 32384, temperature: float = 0.3):
+        self.api_keys = [k.strip() for k in api_keys if k and k.strip()]
+        if not self.api_keys:
+            raise ValueError("Gemini provider selected but no Gemini API key is set (Settings > Model)")
+        self.model, self.idx = model, 0
+        self.num_predict, self.temperature = num_predict, temperature
+
+    def _generate(self, system: str, user: str, max_tokens: int, temperature: float,
+                  json_mode: bool, retries: int = 5, backoff: float = 2.0) -> str:
+        # Gemma models on AI Studio reject system instructions and JSON mode.
+        gemma = self.model.lower().startswith("gemma")
+        body = {"generationConfig": {"temperature": temperature,
+                                     "maxOutputTokens": min(max_tokens, 8192 if gemma else 65536)}}
+        if gemma:
+            body["contents"] = [{"role": "user", "parts": [{"text": f"{system}\n\n{user}"}]}]
+        else:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+            body["contents"] = [{"role": "user", "parts": [{"text": user}]}]
+            if json_mode:
+                body["generationConfig"]["responseMimeType"] = "application/json"
+        last_err: Exception | None = None
+        n = len(self.api_keys)
+        for attempt in range(retries * n):
+            try:
+                resp = requests.post(f"{GEMINI_BASE}/models/{self.model}:generateContent",
+                                     headers={"x-goog-api-key": self.api_keys[self.idx]}, json=body, timeout=180)
+                if resp.status_code in (429, 500, 502, 503, 504):
+                    if resp.status_code == 429:   # free tier is ~10 requests/min
+                        last_err = RuntimeError(f"HTTP 429: {resp.text[:200]}")
+                        self.idx = (self.idx + 1) % n
+                        logging.warning("Gemini rate limit (attempt %d), rotated to key #%d", attempt + 1, self.idx + 1)
+                        if (attempt + 1) % n == 0:   # every key limited: wait out the window
+                            time.sleep(15 * ((attempt + 1) // n))
+                        continue
+                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+                if resp.status_code >= 400:   # bad key/model/request: retrying won't help
+                    raise ValueError(f"Gemini error {resp.status_code}: {resp.text[:300]}")
+                parts = resp.json()["candidates"][0]["content"]["parts"]
+                text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+                if not text:
+                    raise RuntimeError("AI returned an empty response")
+                return text
+            except ValueError:
+                raise
+            except Exception as e:
+                last_err = e
+                logging.warning("Gemini call failed (attempt %d): %s", attempt + 1, e)
+                time.sleep(backoff * (attempt + 1))
+        raise RuntimeError(f"All Gemini attempts failed: {last_err}")
+
+    def complete(self, system: str, user: str, max_tokens: int | None = None, **_) -> str:
+        return self._generate(system, user, max_tokens or self.num_predict, self.temperature, False)
+
+    def complete_json(self, system: str, user: str, num_predict: int = 2048,
+                      temperature: float = 0.1, **_) -> str:
+        # headroom: 2.5 models spend output tokens on thinking before the JSON
+        return self._generate(system, user, max(num_predict, 8192), temperature, True)
+
+
+def make_client(ollama_model: str, task: str = ""):
+    """The LLM client for the provider chosen in Settings > Model. `ollama_model`
+    is the per-stage Ollama model; Gemini uses the single model.gemini_model.
+    `task` (screener, skills, experience, projects, summary, cover_letter, ats) picks
+    the provider from model.task_providers; missing/"default" falls back to model.provider."""
+    from config import CONFIG, collect_ollama_keys
+    m = CONFIG["model"]
+    provider = (m.get("task_providers") or {}).get(task) or "default"
+    if provider == "default":
+        provider = m.get("provider")
+    if provider == "gemini":
+        return GeminiClient(m.get("gemini_api_keys") or [m.get("gemini_api_key", "")], m.get("gemini_model") or "gemini-3.1-flash-lite",
+                            num_predict=m["num_predict"], temperature=m["temperature"])
+    return RotatingOllamaClient(collect_ollama_keys(), ollama_model, num_predict=m["num_predict"],
+                                num_ctx=m["num_ctx"], temperature=m["temperature"])
+
+
 class RotatingOllamaClient:
     def __init__(self, api_keys: list[str], model: str,
                  num_predict: int = 32384, num_ctx: int = 64768, temperature: float = 0.3):

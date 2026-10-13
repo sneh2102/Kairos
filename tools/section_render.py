@@ -116,7 +116,8 @@ def render_skills(data: dict) -> str:
     rows = []
     for cat in data.get("categories", []):
         items = [plain(i) for i in cat.get("items", []) if str(i or "").strip()]
-        if cat.get("name") and items:
+        # a "Familiar With" category is never wanted on the resume
+        if cat.get("name") and items and not str(cat["name"]).lower().startswith("familiar"):
             rows.append(f"     \\textbf{{{plain(cat['name'])}}}{{: {', '.join(items)}}}")
     if not rows:
         raise ValueError("skills JSON has no categories")

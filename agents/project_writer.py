@@ -11,12 +11,6 @@ from llm.client import RotatingOllamaClient
 from tools.section_render import render_projects
 
 
-def _pinned() -> str:
-    """Projects the user wants on every resume (config.json `pinned_projects`)."""
-    names = [n for n in CONFIG.get("pinned_projects", []) if n]
-    return (f"MUST INCLUDE these projects (they count toward the 3-4 total): {', '.join(names)}\n\n"
-            if names else "")
-
 # Default — editable via the Prompts page (config.json prompts.projects_section).
 SYSTEM_PROJECTS = r"""You are an expert resume writer specializing in project showcasing.
 You write the Relevant Projects section as structured data.
@@ -56,6 +50,23 @@ object, no prose, no code fences, no LaTeX. Do not include links; they are added
 """ + BOLD_RULE
 
 
+def _exact_count(render, count: int | None):
+    """Wraps the renderer so the model must return exactly `count` projects: extra
+    ones are cut, too few sends it back to retry (accepted on the 3rd try so a
+    stubborn model still yields a resume)."""
+    tries = [0]
+
+    def wrapped(data: dict) -> str:
+        tries[0] += 1
+        projects = data.get("projects", [])
+        if count and len(projects) > count:
+            data["projects"] = projects[:count]
+        elif count and len(projects) < count and tries[0] < 3:
+            raise ValueError(f"you returned {len(projects)} projects but exactly {count} are required")
+        return render(data)
+    return wrapped
+
+
 def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9+#.]+", text.lower()))
 
@@ -81,30 +92,34 @@ def find_url(name: str, techs: list[str], projects_text: str) -> str:
 
 
 def write(client: RotatingOllamaClient, title: str, company: str, description: str,
-          existing_resume: str, projects_text: str, ats_feedback: str = "", bullets: int = 3) -> str:
+          existing_resume: str, projects_text: str, ats_feedback: str = "", bullets: int = 3, count: int | None = None) -> str:
     user = (
         f"JOB TITLE: {title}\nCOMPANY: {company}\nJOB DESCRIPTION:\n{description}\n\n"
         f"CANDIDATE'S EXISTING RESUME (tech-stack context):\n{existing_resume}\n\n"
-        f"{_pinned()}AVAILABLE PROJECTS (select the 3-4 most relevant):\n{projects_text}\n\n"
-        f"BULLETS PER PROJECT: exactly {bullets} bullets for each selected project.\n\n"
+        f"AVAILABLE PROJECTS (select the {count or '3-4'} most relevant):\n{projects_text}\n\n"
+        + (f"PROJECT COUNT: select exactly {count} projects (this overrides any \"3-4\" above).\n" if count else "")
+        + f"BULLETS PER PROJECT: exactly {bullets} bullets for each selected project.\n\n"
         f"ATS FEEDBACK (must address every point):\n{ats_feedback or 'None — first attempt.'}"
     )
-    return ask_json(client, get_prompt("projects_section", SYSTEM_PROJECTS) + JSON_SPEC, user,
-                    partial(render_projects, url_for=lambda n, t: find_url(n, t, projects_text)))
+    system = get_prompt("projects_section", SYSTEM_PROJECTS)
+    if count:
+        system = system.replace("3-4", str(count))
+    return ask_json(client, system + JSON_SPEC, user,
+                    _exact_count(partial(render_projects, url_for=lambda n, t: find_url(n, t, projects_text)), count))
 
 
 def rebuild(client: RotatingOllamaClient, title: str, company: str, description: str,
-            feedback: str, current_latex: str, projects_text: str) -> str:
+            feedback: str, current_latex: str, projects_text: str, count: int | None = None) -> str:
     user = (
         f"CURRENT Relevant Projects SECTION (for reference):\n{current_latex}\n\n"
         f"FEEDBACK TO ADDRESS:\n{feedback}\n\n"
         f"JOB TITLE: {title}\nCOMPANY: {company}\nJOB DESCRIPTION:\n{description}\n\n"
-        f"{_pinned().replace('MUST INCLUDE', 'KEEP (never remove)')}"
         f"AVAILABLE PROJECTS (only swap in projects from this list):\n{projects_text}\n\n"
         "Apply only the requested changes. Return the full corrected section as JSON."
+        + (f" The section must contain exactly {count} projects." if count else "")
     )
     return ask_json(client, get_prompt("surgical_rewrite", SYSTEM_SURGICAL) + JSON_SPEC, user,
-                    partial(render_projects, url_for=lambda n, t: find_url(n, t, projects_text)))
+                    _exact_count(partial(render_projects, url_for=lambda n, t: find_url(n, t, projects_text)), count))
 
 
 if __name__ == "__main__":

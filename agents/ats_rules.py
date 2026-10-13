@@ -543,8 +543,8 @@ def build_feedback(analysis: dict) -> dict[str, str]:
 
     if missing:
         skills_parts.append(
-            "Missing JD keywords — add the ones the candidate genuinely has (or list adjacent ones "
-            f"under 'Familiar With:'): {', '.join(missing[:12])}."
+            "Missing JD keywords — add the ones the candidate genuinely has: "
+            f"{', '.join(missing[:12])}."
         )
         exp_parts.append(
             f"Work these JD keywords into bullets where honestly applicable: {', '.join(missing[:8])}."
@@ -577,3 +577,14 @@ def build_feedback(analysis: dict) -> dict[str, str]:
         "experience_feedback": " ".join(exp_parts),
         "projects_feedback": " ".join(proj_parts),
     }
+
+
+def company_product_re(company: str) -> "re.Pattern | None":
+    """Matches the hiring company's own product names ("Affirm.js", "AffirmKit"):
+    the company's first word plus a .js/-x/_x or CamelCase suffix. A bare company
+    name and ordinary words ("Affirmative") don't match."""
+    parts = (company or "").split(",")[0].split()
+    word = re.sub(r"[^A-Za-z0-9]", "", parts[0]) if parts else ""
+    if len(word) < 3:
+        return None
+    return re.compile(rf"\b(?i:{re.escape(word)})(?:[._-]\w+|[A-Z]\w*)")

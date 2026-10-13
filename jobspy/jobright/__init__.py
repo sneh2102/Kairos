@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 import requests
 
+from jobspy.jobright.session import state_path
 from jobspy.util import create_logger, extract_emails_from_text, markdown_converter
 from jobspy.model import (
     JobPost, Location, JobResponse, Scraper,
@@ -56,7 +57,8 @@ class JobRight(Scraper):
 
         while len(all_jobs) < scraper_input.results_wanted:
             log.info(f"JobRight: fetching position {position}")
-            batch = self._fetch_via_post_api(scraper_input, country_code, position)
+            # With a saved login the visitor API would return generic results, so go straight to Playwright.
+            batch = None if state_path().exists() else self._fetch_via_post_api(scraper_input, country_code, position)
 
             if batch:
                 all_jobs.extend(batch)
@@ -168,7 +170,9 @@ class JobRight(Scraper):
                     headless=True,
                     args=["--disable-blink-features=AutomationControlled"],
                 )
+                state = state_path()
                 context = browser.new_context(
+                    storage_state=str(state) if state.exists() else None,
                     user_agent=(
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                         "AppleWebKit/537.36 (KHTML, like Gecko) "

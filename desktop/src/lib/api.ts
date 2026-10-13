@@ -104,6 +104,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ api_key: apiKey }),
     }),
+  validateGeminiKey: (apiKey: string) =>
+    request<{ valid: boolean; error: string | null }>("/api/validate/gemini-key", {
+      method: "POST",
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
   validateGithubToken: (token: string) =>
     request<{ valid: boolean; error: string | null }>("/api/validate/github-token", {
       method: "POST",
@@ -196,6 +201,8 @@ export const api = {
       body: JSON.stringify({ verdicts }),
     }),
   stopApply: () => request("/api/apply/stop", { method: "POST" }),
+  cancelBuild: (id: number) => request(`/api/jobs/${id}/build/cancel`, { method: "POST" }),
+  applyQueue: () => request<{ running: boolean; job_ids: number[]; total: number; done: number }>("/api/apply/queue"),
 
   getScheduler: () => request<{ enabled: boolean; time: string }>("/api/scheduler"),
   putScheduler: (payload: { enabled: boolean; time: string }) =>
@@ -208,6 +215,9 @@ export const api = {
   greenhouseStatus: () => request<{ connected: boolean }>("/api/greenhouse/status"),
   greenhouseConnect: () => request<{ connected: boolean }>("/api/greenhouse/connect", { method: "POST" }),
   greenhouseDisconnect: () => request<{ disconnected: boolean }>("/api/greenhouse/disconnect", { method: "POST" }),
+  jobrightStatus: () => request<{ connected: boolean }>("/api/jobright/status"),
+  jobrightConnect: () => request<{ connected: boolean }>("/api/jobright/connect", { method: "POST" }),
+  jobrightDisconnect: () => request<{ disconnected: boolean }>("/api/jobright/disconnect", { method: "POST" }),
   uploadJobToDrive: (id: number) =>
     request<{ resume_link?: string; cover_link?: string }>(`/api/jobs/${id}/upload-to-drive`, { method: "POST" }),
   uploadAppliedToDrive: (id: number) =>

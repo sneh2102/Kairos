@@ -119,8 +119,41 @@ OUTPUT — ONLY this JSON structure
 
 PASS_THRESHOLD = 85
 
+# Appended in code so it also applies to a customised Prompts-page ATS prompt.
+_PROPRIETARY_CHECK = """
 
-def _llm_feedback(client: RotatingOllamaClient, title: str, description: str,
+ALSO CHECK (proprietary tech): find any proprietary, internal or company-specific technology
+(an SDK, library, platform or tool that belongs to the hiring company or to some other single
+company and is NOT publicly available or widely used in industry) that the resume claims the
+candidate used, built or integrated. Real public tools (React, Kubernetes, Stripe API, ...) are
+fine. Add a key to the JSON: "proprietary_tech": [{"term": "exact text as written in the resume",
+"section": "skills" or "experience" or "projects"}]. Use [] if there is none."""
+_SECTION_IDS = ("skills", "experience", "projects")
+
+
+def _proprietary_hits(company: str, latex: str, review: dict | None) -> dict[str, list[str]]:
+    """{section_id: [terms]} the resume claims but nobody outside a company could have
+    used. Deterministic: the hiring company's own product names. Plus the LLM's flags,
+    kept only if the term really appears in that section (no hallucinated hits)."""
+    from tools.latex import extract_sections   # runtime import (tools.latex imports config)
+    sections = extract_sections(latex, "")
+    plain = {k: _latex_to_text_safe(v) for k, v in sections.items()}
+    hits: dict[str, list[str]] = {}
+    pat = ats_rules.company_product_re(company)
+    if pat:
+        for sid, text in plain.items():
+            found = sorted(set(pat.findall(text)))
+            if found:
+                hits.setdefault(sid, []).extend(found)
+    for item in (review or {}).get("proprietary_tech") or []:
+        term, sid = str(item.get("term", "")).strip(), str(item.get("section", "")).strip().lower()
+        if sid in _SECTION_IDS and term and term.lower() in plain.get(sid, "").lower() \
+                and term not in hits.get(sid, []):
+            hits.setdefault(sid, []).append(term)
+    return hits
+
+
+def _llm_feedback(client, title: str, description: str,
                   resume_text: str) -> dict | None:
     """Qualitative feedback only — NEVER affects the score (the LLM's numeric
     fields are dropped). Returns parsed dict or None on any failure, in which
@@ -131,7 +164,7 @@ def _llm_feedback(client: RotatingOllamaClient, title: str, description: str,
         .replace("{title}", str(title))
         .replace("{description}", str(description)[:1500])
         .replace("{latex}", str(resume_text))
-    )
+    ) + _PROPRIETARY_CHECK
     try:
         raw = client.complete_json(system="You are a strict ATS evaluator. Return ONLY valid JSON.",
                                    user=prompt)
@@ -142,7 +175,7 @@ def _llm_feedback(client: RotatingOllamaClient, title: str, description: str,
         return None
 
 
-def check(client: RotatingOllamaClient, title: str, description: str, latex: str) -> dict:
+def check(client, title: str, description: str, latex: str, company: str = "") -> dict:
     analysis = ats_rules.analyze(description, latex)
     feedback = ats_rules.build_feedback(analysis)
 
@@ -163,6 +196,17 @@ def check(client: RotatingOllamaClient, title: str, description: str, latex: str
         raw_suggestions = review.get("suggestions") or review.get("top_suggestions") or []
         suggestions = [str(s) for s in raw_suggestions if s][:3]
 
+    # proprietary/private tech claimed as experience: force a rewrite of that section
+    hits = _proprietary_hits(company, latex, review)
+    for sid, terms in hits.items():
+        listed = ", ".join(f"'{t}'" for t in terms)
+        feedback[f"{sid}_feedback"] = (feedback.get(f"{sid}_feedback", "") + (
+            f" PROPRIETARY TECH: {listed} is private/internal technology that nobody outside the "
+            f"company could have used. Remove it everywhere in this section and describe the same "
+            f"work with a generic or public equivalent instead.")).strip()
+        if sid not in sections_to_rewrite:
+            sections_to_rewrite.append(sid)
+
     sub = analysis["subscores"]
     W = ats_rules.WEIGHTS
     logger.info(
@@ -177,7 +221,7 @@ def check(client: RotatingOllamaClient, title: str, description: str, latex: str
 
     return {
         "score": score,
-        "pass": score >= PASS_THRESHOLD,
+        "pass": score >= PASS_THRESHOLD and not hits,
         "section_scores": section_scores,
         "sections_to_rewrite": sections_to_rewrite,
         "skills_feedback": feedback["skills_feedback"],
@@ -192,7 +236,12 @@ def check(client: RotatingOllamaClient, title: str, description: str, latex: str
         "jd_domains": analysis["jd_domains"],
         "resume_domains": analysis["resume_domains"],
         "suggestions": suggestions,
+        "proprietary_tech": hits,
     }
+
+
+def _latex_to_text_safe(latex: str) -> str:
+    return latex_to_text_safe(latex)
 
 
 def latex_to_text_safe(latex: str) -> str:

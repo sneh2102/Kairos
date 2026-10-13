@@ -10,6 +10,7 @@ generated artifacts back onto the JobsDB row. Moving a job into applied.db
 is a separate explicit action (server.py's /api/jobs/{id}/apply).
 """
 import logging
+import re
 import threading
 import time
 from typing import Callable
@@ -21,12 +22,23 @@ from agents import (ats_checker, custom_section_writer, experience_writer, latex
 from config import CONFIG, collect_ollama_keys, load_text_file
 from db.manager import JobsDB
 from graph.state import ApplyState
-from llm.client import ClaudeCliClient, RotatingOllamaClient
+from llm.client import ClaudeCliClient, make_client
 from tools.section_render import render_static
 from tools import cover_letter as cover_letter_tool
 from tools import latex
 
 WRITER_SECTIONS = ("skills", "experience", "projects")
+
+
+def hide_company_products(description: str, company: str) -> str:
+    """Rewrites the hiring company's own product names in the JD ("Affirm.js",
+    "AffirmKit") to a generic phrase, so no writer/keyword step can ever claim
+    them as experience. A bare company name is left alone."""
+    word = re.sub(r"[^A-Za-z0-9]", "", (company or "").split(",")[0].split()[0] if (company or "").strip() else "")
+    if len(word) < 3:
+        return description
+    # separator+word (Affirm.js) or CamelCase suffix (AffirmKit); [A-Z] stays case-sensitive
+    return re.sub(rf"\b(?i:{re.escape(word)})(?:[._-]\w+|[A-Z]\w*)", "an in-house SDK", description)
 
 
 def build_apply_graph(emit: Callable[[dict], None] | None = None,
@@ -37,12 +49,17 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     emit = emit or (lambda event: None)
     stop_event = stop_event or threading.Event()
     jobs_db = JobsDB()
-    client = RotatingOllamaClient(
-        collect_ollama_keys(), CONFIG["model"]["pipeline"],
-        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
-        temperature=CONFIG["model"]["temperature"],
-    )
-    writer = ClaudeCliClient(CONFIG.get("model", {}).get("claude", "")) if use_claude else client
+    claude = ClaudeCliClient(CONFIG.get("model", {}).get("claude", "")) if use_claude else None
+    _clients: dict = {}
+
+    def client_for(task: str):
+        """Provider chosen for this task in Settings (Claude CLI overrides the writing tasks)."""
+        if claude and task != "ats":
+            return claude
+        if task not in _clients:
+            _clients[task] = make_client(CONFIG["model"]["pipeline"], task)
+        return _clients[task]
+
     pcfg = CONFIG["pipeline"]
     existing_resume = load_text_file(pcfg["resume_path"])
     projects_text = load_text_file(pcfg["projects_path"])
@@ -71,7 +88,8 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
 
         job = jobs[idx]
         title, company = job.get("title", ""), job.get("company", "")
-        description = job.get("description", "") or f"{title} role at {company}."
+        description = hide_company_products(
+            job.get("description", "") or f"{title} role at {company}.", company)
         location = job.get("location") if pcfg["use_jd_location"] else None
         location = location or pcfg["default_location"]
 
@@ -88,24 +106,17 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
                 continue
             if section_cfg.get("kind") == "static":      # user-authored in the designer: no model call
                 sections[sid] = render_static(section_cfg)
-                continue
-            try:
-                sections[sid] = custom_section_writer.write(
-                    writer, section_cfg, profile.get("full_name", ""), title, company, description, existing_resume,
-                    experience_yrs=profile.get("experience_yrs", ""),
-                )
-            except Exception as e:
-                logging.warning("Custom section %s failed for %s @ %s: %s", sid, title, company, e)
-                sections[sid] = ""
+            # model-written ones (e.g. Summary) are built in the "custom" node, after the
+            # core sections exist, so they summarise the tailored resume
 
         try:
-            cover = cover_letter_tool.generate(writer, title, company, description, existing_resume, profile)
+            cover = cover_letter_tool.generate(client_for("cover_letter"), title, company, description, existing_resume, profile)
         except Exception as e:
             logging.warning("Cover letter generation failed for %s @ %s: %s", title, company, e)
             cover = ""
 
         return {
-            "current_job": job,
+            "current_job": {**job, "description": description},
             "cover_letter": cover,
             "sections": sections,
             "ats_score": 0,
@@ -121,7 +132,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     def route_after_next_job(state: ApplyState):
         if state["job_index"] >= len(state["jobs"]):
             return END
-        return active_writers or "optimize"
+        return active_writers or "custom"
 
     def make_writer_node(section: str):
         def node(state: ApplyState) -> dict:
@@ -133,29 +144,56 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
             first_pass = state["ats_iteration"] == 0
             try:
                 if section == "skills":
-                    text = (skills_writer.write(writer, title, company, description, existing_resume)
+                    text = (skills_writer.write(client_for(section), title, company, description, existing_resume)
                             if first_pass else
-                            skills_writer.rebuild(writer, title, company, description,
+                            skills_writer.rebuild(client_for(section), title, company, description,
                                                    state["ats_feedback"].get("skills_feedback", ""),
                                                    state["sections"].get("skills", "")))
                 elif section == "experience":
-                    text = (experience_writer.write(writer, title, company, description, existing_resume, experience_roles)
+                    text = (experience_writer.write(client_for(section), title, company, description, existing_resume, experience_roles)
                             if first_pass else
-                            experience_writer.rebuild(writer, title, company, description,
+                            experience_writer.rebuild(client_for(section), title, company, description,
                                                        state["ats_feedback"].get("experience_feedback", ""),
                                                        state["sections"].get("experience", "")))
                 else:
-                    text = (project_writer.write(writer, title, company, description, existing_resume,
-                                                  projects_text, bullets=project_bullets)
+                    text = (project_writer.write(client_for(section), title, company, description, existing_resume,
+                                                  projects_text, bullets=project_bullets,
+                                                  count=pcfg.get("project_count"))
                             if first_pass else
-                            project_writer.rebuild(writer, title, company, description,
+                            project_writer.rebuild(client_for(section), title, company, description,
                                                     state["ats_feedback"].get("projects_feedback", ""),
-                                                    state["sections"].get("projects", ""), projects_text))
+                                                    state["sections"].get("projects", ""), projects_text,
+                                                    count=pcfg.get("project_count")))
             except Exception as e:
                 logging.warning("%s writer failed for %s @ %s: %s", section, title, company, e)
                 text = state["sections"].get(section, "")
             return {"sections": {section: text}}
         return node
+
+    def custom(state: ApplyState) -> dict:
+        """Model-written custom sections (Summary...) built from the finished
+        core sections. First pass only: ponytail: not rewritten when ATS loops
+        rebuild a core section, add a re-run if the summary goes stale."""
+        if state["ats_iteration"] > 0:
+            return {}
+        job = state["current_job"]
+        title, company = job.get("title", ""), job.get("company", "")
+        description = job.get("description", "") or f"{title} role at {company}."
+        todo = [s for s in custom_sections
+                if s.get("id") and s["id"] not in hidden and s.get("kind") != "static"]
+        # resume so far = the core sections, minus the ones about to be written
+        built = latex.reassemble({k: v for k, v in state["sections"].items()
+                                  if k not in {s["id"] for s in todo}}, section_order)
+        out = {}
+        for section_cfg in todo:
+            try:
+                out[section_cfg["id"]] = custom_section_writer.write(
+                    client_for("summary"), section_cfg, profile.get("full_name", ""), title, company, description, built,
+                    experience_yrs=profile.get("experience_yrs", ""))
+            except Exception as e:
+                logging.warning("Custom section %s failed for %s @ %s: %s", section_cfg["id"], title, company, e)
+                out[section_cfg["id"]] = ""
+        return {"sections": out} if out else {}
 
     def optimize(state: ApplyState) -> dict:
         """Deterministic post-pass: keyword injection, AI-tell swaps, verb
@@ -163,7 +201,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
         points instead of hoping the writers followed instructions."""
         job = state["current_job"]
         try:
-            updated = optimizer.optimize_sections(client, state["sections"], job.get("description", ""))
+            updated = optimizer.optimize_sections(client_for("ats"), state["sections"], job.get("description", ""))
         except Exception as e:
             logging.warning("Optimizer failed for %s @ %s (sections kept): %s",
                             job.get("title", ""), job.get("company", ""), e)
@@ -177,7 +215,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
               "job_index": state["job_index"], "total": len(state["jobs"]),
               "iteration": state["ats_iteration"] + 1})
         full_latex = latex.reassemble(state["sections"], section_order)
-        result = ats_checker.check(client, title, job.get("description", ""), full_latex)
+        result = ats_checker.check(client_for("ats"), title, job.get("description", ""), full_latex, company)
 
         score = result["score"]
         best_score = max(score, state["best_score"])
@@ -263,7 +301,7 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
             )})
 
         compiled, full_latex = latex_fixer.compile_with_autofix(
-            client, full_latex, resume_pdf, latex.compile_latex_to_pdf, latex.last_compile_error,
+            client_for("ats"), full_latex, resume_pdf, latex.compile_latex_to_pdf, latex.last_compile_error,
             max_attempts=pcfg.get("max_latex_fix_attempts", 2), on_attempt=_log_fix_attempt,
         )
 
@@ -295,14 +333,16 @@ def build_apply_graph(emit: Callable[[dict], None] | None = None,
     g.add_node("next_job", next_job)
     for section in WRITER_SECTIONS:
         g.add_node(section, make_writer_node(section))
+    g.add_node("custom", custom)
     g.add_node("optimize", optimize)
     g.add_node("check_ats", check_ats)
     g.add_node("save_output", save_output)
 
     g.add_edge(START, "next_job")
-    g.add_conditional_edges("next_job", route_after_next_job, [*WRITER_SECTIONS, "optimize", END])
+    g.add_conditional_edges("next_job", route_after_next_job, [*WRITER_SECTIONS, "custom", END])
     for section in WRITER_SECTIONS:
-        g.add_edge(section, "optimize")
+        g.add_edge(section, "custom")
+    g.add_edge("custom", "optimize")
     g.add_edge("optimize", "check_ats")
     g.add_conditional_edges("check_ats", route_after_check_ats, [*WRITER_SECTIONS, "save_output"])
     g.add_edge("save_output", "next_job")

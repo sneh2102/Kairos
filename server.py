@@ -4,8 +4,10 @@
 Run: uvicorn server:app --port 8756
 """
 import asyncio
+import json
 import logging
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -26,7 +28,7 @@ from config import CONFIG
 from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
 from graph.scrape_graph import build_scrape_graph
-from llm.client import RotatingOllamaClient, validate_api_key
+from llm.client import make_client, validate_api_key, validate_gemini_key
 from tools import designer, google_drive, latex, templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -107,15 +109,17 @@ class Broadcaster:
 
 broadcaster = Broadcaster()
 
-# one background run per stage at a time ("apply" covers both the batch
-# Build tab and a single-job build from the job detail view)
-RUNNERS: dict[str, dict] = {"scrape": {}, "apply": {}}
+# one scrape run at a time; builds go through APPLY_QUEUE (see "build queue" below)
+RUNNERS: dict[str, dict] = {"scrape": {}}
 
 
 @app.on_event("startup")
 async def on_startup():
     broadcaster.bind_loop(asyncio.get_running_loop())
     threading.Thread(target=_scheduler_loop, daemon=True).start()
+    for _ in range(max(1, int(CONFIG.get("pipeline", {}).get("build_workers", 2)))):
+        threading.Thread(target=_apply_worker, daemon=True).start()
+    _restore_queue()
 
 
 @app.websocket("/ws/events")
@@ -242,6 +246,29 @@ def greenhouse_disconnect():
     return {"disconnected": True}
 
 
+@app.get("/api/jobright/status")
+def jobright_status():
+    from jobspy.jobright.session import state_path
+    return {"connected": state_path().exists()}
+
+
+@app.post("/api/jobright/connect")
+def jobright_connect():
+    from jobspy.jobright.session import login_and_save
+    try:
+        login_and_save()
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return {"connected": True}
+
+
+@app.post("/api/jobright/disconnect")
+def jobright_disconnect():
+    from jobspy.jobright.session import state_path
+    state_path().unlink(missing_ok=True)
+    return {"disconnected": True}
+
+
 def _upload_row_to_drive(row: dict, prefix: str) -> dict:
     if not google_drive.is_connected():
         raise HTTPException(400, "Connect Google Drive in Settings first.")
@@ -331,6 +358,12 @@ def put_ollama_keys(payload: dict = Body(...)):
 @app.post("/api/validate/ollama-key")
 def validate_ollama_key_route(payload: dict = Body(...)):
     valid, error = validate_api_key(payload.get("api_key", ""))
+    return {"valid": valid, "error": error}
+
+
+@app.post("/api/validate/gemini-key")
+def validate_gemini_key_route(payload: dict = Body(...)):
+    valid, error = validate_gemini_key(payload.get("api_key", ""))
     return {"valid": valid, "error": error}
 
 
@@ -503,11 +536,7 @@ def github_generate_entry(payload: dict = Body(...)):
     if not repo_url:
         raise HTTPException(400, "repo_url required")
     token = CONFIG.get("github", {}).get("token", "")
-    client = RotatingOllamaClient(
-        config.collect_ollama_keys(), CONFIG["model"]["pipeline"],
-        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
-        temperature=CONFIG["model"]["temperature"],
-    )
+    client = make_client(CONFIG["model"]["pipeline"], "projects")
     try:
         entry = github_importer.generate_project_entry(client, repo_url, token)
     except Exception as e:
@@ -551,11 +580,7 @@ def add_manual_job(payload: dict = Body(...)):
     }
 
     resume_text = config.load_text_file(CONFIG["pipeline"]["resume_path"])
-    client = RotatingOllamaClient(
-        config.collect_ollama_keys(), CONFIG["model"]["scraping"],
-        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
-        temperature=CONFIG["model"]["temperature"],
-    )
+    client = make_client(CONFIG["model"]["scraping"], "screener")
     try:
         verdict = screener.screen_job(client, job, CONFIG, resume_text)
     except Exception as e:
@@ -612,8 +637,6 @@ def apply_job(job_id: int):
 
 @app.post("/api/jobs/{job_id}/build")
 def build_one_job(job_id: int, payload: dict = Body(default={})):
-    if _is_running("apply"):
-        raise HTTPException(409, "a build is already running")
     job = jobs_db.get_by_id(job_id)
     if not job:
         raise HTTPException(404, "job not found")
@@ -686,11 +709,8 @@ def rebuild_section(job_id: int, payload: dict = Body(...)):
     name_map = {s.get("name", "").lower(): sid for sid, s in custom.items() if s.get("name")}
     heading, prior = latex.find_section(source, section_id, name_map)
 
-    client = RotatingOllamaClient(
-        config.collect_ollama_keys(), CONFIG["model"]["pipeline"],
-        num_predict=CONFIG["model"]["num_predict"], num_ctx=CONFIG["model"]["num_ctx"],
-        temperature=CONFIG["model"]["temperature"],
-    )
+    client = make_client(CONFIG["model"]["pipeline"],
+                         section_id if section_id in ("skills", "experience", "projects") else "summary")
     try:
         if section_id == "skills":
             block = (skills_writer.rebuild(client, title, company, description, message, prior)
@@ -703,14 +723,18 @@ def rebuild_section(job_id: int, payload: dict = Body(...)):
                      experience_writer.write(client, title, company, description, existing_resume, roles))
         elif section_id == "projects":
             projects_text = config.load_text_file(pcfg["projects_path"])
-            block = (project_writer.rebuild(client, title, company, description, message, prior, projects_text)
+            block = (project_writer.rebuild(client, title, company, description, message, prior, projects_text,
+                                           count=pcfg.get("project_count"))
                      if message and prior else
                      project_writer.write(client, title, company, description, existing_resume, projects_text,
-                                           bullets=pcfg.get("project_bullets", 3)))
+                                           bullets=pcfg.get("project_bullets", 3),
+                                          count=pcfg.get("project_count")))
         elif section_id in custom:
+            # base it on the tailored resume (minus this section) when one exists
+            others = latex.replace_section(source, heading, "") if heading and source else source
             block = custom_section_writer.write(
                 client, custom[section_id], profile.get("full_name", ""), title, company, description,
-                existing_resume, experience_yrs=profile.get("experience_yrs", ""), custom_instruction=message)
+                others or existing_resume, experience_yrs=profile.get("experience_yrs", ""), custom_instruction=message)
         else:
             raise HTTPException(404, f"section '{section_id}' is not rebuildable")
     except HTTPException:
@@ -853,48 +877,143 @@ def stop_scrape():
     return {"stopping": True}
 
 
-def _run_apply(jobs: list[dict], use_claude: bool = False):
-    stop_event = threading.Event()
-    RUNNERS["apply"]["stop_event"] = stop_event
+# ---- build queue ------------------------------------------------------------
+# Every build request (batch or single job) is queued one job at a time; a small
+# pool of worker threads (pipeline.build_workers, default 2) pulls and runs them.
+#
+# Each queued job owns a state dict {stop, use_claude}; its `stop` Event is what
+# makes cancel work per job (running: wind down at next checkpoint; waiting:
+# skipped when a worker picks it up). The queue is mirrored to build_queue.json
+# so builds still pending at shutdown resume on the next start.
 
-    def work():
+APPLY_QUEUE: queue.Queue = queue.Queue()
+_QUEUE_FILE = config.DATA_DIR / "build_queue.json"
+_apply_lock = threading.Lock()
+_apply_jobs: dict[int, dict] = {}    # job id -> state, for jobs waiting or running
+_apply_batch = {"total": 0, "done": 0}
+_output_locks: dict[tuple, threading.Lock] = {}   # same company+title share an output folder
+
+
+def _persist_queue():
+    """Call with _apply_lock held."""
+    try:
+        _QUEUE_FILE.write_text(json.dumps([{"id": i, "use_claude": s["use_claude"]} for i, s in _apply_jobs.items()]),
+                               encoding="utf-8")
+    except OSError:
+        logging.warning("Could not write %s", _QUEUE_FILE)
+
+
+def _apply_finish_one(job_id: int, state: dict):
+    with _apply_lock:
+        if _apply_jobs.get(job_id) is state:    # a re-queued job's newer state stays put
+            del _apply_jobs[job_id]
+        _apply_batch["done"] += 1
+        idle = not _apply_jobs
+        if idle:
+            _apply_batch.update(total=0, done=0)
+        _persist_queue()
+    if idle:
+        broadcaster.emit({"type": "done", "stage": "apply"})
+
+
+def _apply_worker():
+    while True:
+        job, state = APPLY_QUEUE.get()
+        company, title = job.get("company", ""), job.get("title", "")
+
+        def emit(event: dict):
+            if event.get("type") == "done":
+                return  # each graph run is one job; "done" fires once the whole queue drains
+            if event.get("type") == "apply_progress":
+                event = {**event, "job_index": _apply_batch["done"], "total": _apply_batch["total"]}
+            broadcaster.emit(event)
+
         try:
-            graph = build_apply_graph(emit=broadcaster.emit, stop_event=stop_event, use_claude=use_claude)
-            initial_state = {
-                "jobs": jobs, "job_index": 0, "current_job": {}, "cover_letter": "",
-                "sections": {}, "ats_score": 0, "ats_feedback": {}, "ats_iteration": 0,
-                "ats_passed": False, "best_score": 0, "no_improve": 0,
-                "_sections_to_rewrite": [], "_best_sections": {}, "results": [],
-            }
-            graph.invoke(initial_state, {"recursion_limit": 200})
+            if state["stop"].is_set():          # cancelled while still waiting
+                broadcaster.emit({"type": "apply_progress", "company": company, "title": title, "stage": "cancelled",
+                                  "job_index": _apply_batch["done"], "total": _apply_batch["total"], "job_id": job["id"]})
+                continue
+            with _apply_lock:
+                out_lock = _output_locks.setdefault((company.lower(), title.lower()), threading.Lock())
+            with out_lock:                      # two same-named jobs would write the same files
+                graph = build_apply_graph(emit=emit, stop_event=state["stop"], use_claude=state["use_claude"])
+                graph.invoke({
+                    "jobs": [job], "job_index": 0, "current_job": {}, "cover_letter": "",
+                    "sections": {}, "ats_score": 0, "ats_feedback": {}, "ats_iteration": 0,
+                    "ats_passed": False, "best_score": 0, "no_improve": 0,
+                    "_sections_to_rewrite": [], "_best_sections": {}, "results": [],
+                }, {"recursion_limit": 200})
         except Exception as e:
-            logging.exception("Apply run failed")
+            logging.exception("Build failed for %s @ %s", title, company)
             broadcaster.emit({"type": "log", "level": "ERROR", "message": str(e)})
-            broadcaster.emit({"type": "done", "stage": "apply"})
+        finally:
+            _apply_finish_one(job["id"], state)
 
-    t = threading.Thread(target=work, daemon=True)
-    RUNNERS["apply"]["thread"] = t
-    t.start()
+
+def _run_apply(jobs: list[dict], use_claude: bool = False) -> int:
+    """Queue jobs for building; returns how many were newly queued."""
+    new = []
+    with _apply_lock:
+        for j in jobs:
+            existing = _apply_jobs.get(j["id"])
+            if existing and not existing["stop"].is_set():
+                continue                        # already waiting/running
+            state = {"stop": threading.Event(), "use_claude": use_claude}
+            _apply_jobs[j["id"]] = state        # replaces a cancelled-but-not-yet-drained entry
+            new.append((j, state))
+        _apply_batch["total"] += len(new)
+        total = _apply_batch["total"]
+        _persist_queue()
+    for j, state in new:
+        broadcaster.emit({"type": "apply_progress", "company": j.get("company", ""), "title": j.get("title", ""),
+                          "stage": "queued", "job_index": _apply_batch["done"], "total": total, "job_id": j["id"]})
+        APPLY_QUEUE.put((j, state))
+    return len(new)
+
+
+def _restore_queue():
+    try:
+        entries = json.loads(_QUEUE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    for use_claude in (False, True):
+        jobs = [j for e in entries if bool(e.get("use_claude")) == use_claude
+                and (j := jobs_db.get_by_id(e["id"])) and not j.get("latex_content")]
+        if jobs:
+            _run_apply(jobs, use_claude)
 
 
 @app.post("/api/apply/start")
 def start_apply(payload: dict = Body(default={})):
-    if _is_running("apply"):
-        raise HTTPException(409, "a build is already running")
     verdicts = tuple(payload.get("verdicts", ["yes"]))
     jobs = load_buildable_jobs(verdicts=verdicts)
     if not jobs:
         raise HTTPException(400, "No unbuilt jobs match — change verdicts in Scraped Jobs first")
-    _run_apply(jobs)
-    return {"started": True, "count": len(jobs)}
+    return {"started": True, "count": _run_apply(jobs)}
 
 
 @app.post("/api/apply/stop")
 def stop_apply():
-    stop_event = RUNNERS["apply"].get("stop_event")
-    if stop_event:
-        stop_event.set()
+    with _apply_lock:
+        for s in _apply_jobs.values():
+            s["stop"].set()
     return {"stopping": True}
+
+
+@app.post("/api/jobs/{job_id}/build/cancel")
+def cancel_build(job_id: int):
+    with _apply_lock:
+        state = _apply_jobs.get(job_id)
+        if state:
+            state["stop"].set()
+    return {"cancelling": bool(state)}
+
+
+@app.get("/api/apply/queue")
+def apply_queue_status():
+    with _apply_lock:
+        return {"running": bool(_apply_jobs), "job_ids": list(_apply_jobs),
+                "total": _apply_batch["total"], "done": _apply_batch["done"]}
 
 
 # ---- scheduler --------------------------------------------------------------

@@ -252,9 +252,7 @@ def test_optimizer_rescues_bad_resume():
     sections = {"skills": skills, "experience": _BAD_LATEX, "projects": ""}
     out = optimizer.optimize_sections(_FakeMetricClient(), sections, _JD)
 
-    # missing JD keywords injected into skills as "Familiar With"
-    assert "Familiar With" in out["skills"]
-    assert "Kubernetes" in out["skills"] or "Docker" in out["skills"]
+    assert "Familiar With" not in out["skills"]   # keywords are no longer stuffed into skills
 
     exp = out["experience"]
     # AI-tells swapped for plain words

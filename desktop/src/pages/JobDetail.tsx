@@ -81,7 +81,7 @@ export default function JobDetail() {
   }
 
   const hasResume = !!job.latex_content;
-  const building = progress && progress.stage !== "done";
+  const building = progress && progress.stage !== "done" && progress.stage !== "cancelled";
 
   return (
     <div className="flex flex-col gap-4 max-w-4xl">
@@ -162,6 +162,11 @@ export default function JobDetail() {
                   title="Resume sections + cover letter written by Claude (uses your Claude subscription)">
             Build with Claude
           </button>
+          {building && (
+            <button className="btn-danger" onClick={() => api.cancelBuild(jobId).catch(() => {})}>
+              Cancel build
+            </button>
+          )}
           <button className="btn-secondary" onClick={() => navigate(`/jobs/${jobId}/editor`)} disabled={!hasResume}>
             Open in LaTeX editor
           </button>

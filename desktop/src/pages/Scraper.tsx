@@ -114,7 +114,20 @@ export default function Scraper() {
               </Field>
               {config.scraper.sites.split(",").map((s) => s.trim()).includes("greenhouse") && (
                 <Field label="Greenhouse">
-                  <GreenhouseConnect />
+                  <SiteConnect
+                    name="Greenhouse"
+                    host="my.greenhouse.io"
+                    fns={{ status: api.greenhouseStatus, connect: api.greenhouseConnect, disconnect: api.greenhouseDisconnect }}
+                  />
+                </Field>
+              )}
+              {config.scraper.sites.split(",").map((s) => s.trim()).includes("jobright") && (
+                <Field label="JobRight">
+                  <SiteConnect
+                    name="JobRight"
+                    host="jobright.ai"
+                    fns={{ status: api.jobrightStatus, connect: api.jobrightConnect, disconnect: api.jobrightDisconnect }}
+                  />
                 </Field>
               )}
               <div className="grid grid-cols-2 gap-3">
@@ -248,13 +261,25 @@ export function SiteSelect({ value, onChange }: { value: string; onChange: (v: s
   );
 }
 
-function GreenhouseConnect() {
+function SiteConnect({
+  name,
+  host,
+  fns,
+}: {
+  name: string;
+  host: string;
+  fns: {
+    status: () => Promise<{ connected: boolean }>;
+    connect: () => Promise<unknown>;
+    disconnect: () => Promise<unknown>;
+  };
+}) {
   const [status, setStatus] = useState<{ connected: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function refresh() {
-    api.greenhouseStatus().then(setStatus).catch(() => {});
+    fns.status().then(setStatus).catch(() => {});
   }
   useEffect(refresh, []);
 
@@ -262,7 +287,7 @@ function GreenhouseConnect() {
     setBusy(true);
     setError(null);
     try {
-      await api.greenhouseConnect();
+      await fns.connect();
       refresh();
     } catch (e) {
       setError(String(e));
@@ -274,7 +299,7 @@ function GreenhouseConnect() {
   async function disconnect() {
     setBusy(true);
     try {
-      await api.greenhouseDisconnect();
+      await fns.disconnect();
       refresh();
     } finally {
       setBusy(false);
@@ -293,12 +318,12 @@ function GreenhouseConnect() {
           </>
         ) : (
           <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={connect} disabled={busy}>
-            {busy ? "Waiting for login…" : "Connect Greenhouse"}
+            {busy ? "Waiting for login…" : `Connect ${name}`}
           </button>
         )}
       </div>
       <p className="text-xs text-muted">
-        Opens a browser window — log into my.greenhouse.io there, then it closes automatically.
+        Opens a browser window — log into {host} there, then it closes automatically.
       </p>
       {error && <p className="text-xs text-no">{error}</p>}
     </div>
