@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import type { JobRow } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
+import { useEventStream } from "../lib/eventStream";
 
 const FILTERS = ["all", "yes", "maybe", "no"] as const;
 
@@ -65,6 +66,8 @@ export default function ScrapedJobs() {
     () => (searchParams.get("sort") as "" | "asc" | "desc") || ""
   );
   const navigate = useNavigate();
+  const { applyProgress } = useEventStream();
+  const [removing, setRemoving] = useState<number | null>(null);
 
   const sites = useMemo(() => [...new Set(jobs.map((j) => j.site).filter(Boolean))].sort(), [jobs]);
   const provinces = useMemo(
@@ -231,13 +234,32 @@ export default function ScrapedJobs() {
         <div className="text-sm text-muted">No jobs match. Run a scrape, or add one yourself.</div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-          {visible.map((job) => (
+          {visible.map((job, i) => (
             <JobTile
               key={job.id}
               job={job}
+              index={i}
+              removing={removing === job.id}
+              stage={applyProgress[`${job.company}::${job.title}`]?.stage}
               onClick={() => {
                 sessionStorage.setItem("jobsScroll", String(document.querySelector("main")?.scrollTop ?? 0));
                 navigate(`/jobs/${job.id}`);
+              }}
+              onBuild={async () => {
+                try {
+                  await api.buildJob(job.id);
+                  setMessage(`Build started: ${job.title} @ ${job.company}.`);
+                } catch (e) {
+                  setMessage(String(e));
+                }
+              }}
+              onDelete={async () => {
+                if (!confirm(`Delete "${job.title}" at ${job.company}?`)) return;
+                setRemoving(job.id);
+                await api.deleteJob(job.id);
+                await new Promise((r) => setTimeout(r, 300)); // let the exit animation play
+                setJobs((js) => js.filter((j) => j.id !== job.id));
+                setRemoving(null);
               }}
             />
           ))}
@@ -258,11 +280,35 @@ export default function ScrapedJobs() {
   );
 }
 
-function JobTile({ job, onClick }: { job: JobRow; onClick: () => void }) {
+function JobTile({
+  job,
+  index,
+  removing,
+  stage,
+  onClick,
+  onBuild,
+  onDelete,
+}: {
+  job: JobRow;
+  index: number;
+  removing: boolean;
+  stage?: string;
+  onClick: () => void;
+  onBuild: () => void;
+  onDelete: () => void;
+}) {
+  const stop = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
+  const building = !!stage && stage !== "done" && stage !== "cancelled";
   return (
     <div
       onClick={onClick}
-      className="card aspect-square p-4 flex flex-col cursor-pointer hover:border-accent/50 transition-colors"
+      style={{ animationDelay: `${Math.min(index, 12) * 35}ms` }}
+      className={`card p-4 flex flex-col cursor-pointer hover:border-accent/60 hover:-translate-y-0.5 hover:shadow-pop ${
+        removing ? "tile-out" : "tile-in"
+      } ${building ? "tile-building" : ""}`}
     >
       <div className="flex items-center gap-1.5 flex-wrap">
         <StatusBadge label={(job.ai_recommendation || "?").toUpperCase()} tone={job.ai_recommendation || "maybe"} />
@@ -271,13 +317,39 @@ function JobTile({ job, onClick }: { job: JobRow; onClick: () => void }) {
         )}
       </div>
 
-      <div className="mt-3 font-semibold text-fg text-[15px] leading-snug line-clamp-3">{job.title}</div>
+      <div className="mt-3 font-display font-semibold text-fg text-base leading-snug line-clamp-3">{job.title}</div>
       <div className="text-sm text-fg-soft mt-1.5 truncate">{job.company}</div>
       <div className="text-xs text-muted truncate">{job.location || "Location not listed"}</div>
 
-      <div className="mt-auto pt-3 flex items-center justify-between">
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {job.years_required && <span className="chip text-[11px]">{job.years_required} yrs</span>}
+        {job.role_level && <span className="chip text-[11px] capitalize">{job.role_level}</span>}
         <span className="chip text-[11px]">{job.site}</span>
-        <span className="num text-xs text-fg-soft">{job.skills_match_pct}% match</span>
+        {job.posted_date && <span className="chip text-[11px]">{job.posted_date}</span>}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between">
+        <span className="num text-xs text-fg-soft">{job.skills_match_pct}% skills match</span>
+        {job.application_status && job.application_status !== "not_applied" && (
+          <span className="text-[11px] text-muted">{job.application_status}</span>
+        )}
+      </div>
+
+      <div className="mt-auto pt-3 flex gap-2">
+        <button className="btn-secondary flex-1 !py-1.5" disabled={building} onClick={stop(onBuild)}>
+          {building ? (
+            <>
+              <span className="spinner" /> {stage}
+            </>
+          ) : job.latex_content ? (
+            "Rebuild"
+          ) : (
+            "Build"
+          )}
+        </button>
+        <button className="btn-danger !py-1.5" disabled={building || removing} onClick={stop(onDelete)} aria-label={`Delete ${job.title}`}>
+          Delete
+        </button>
       </div>
     </div>
   );
