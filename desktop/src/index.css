@@ -7,69 +7,69 @@
    pins a theme with [data-theme] on <html>. Warm, soft, human — not a cool-gray
    enterprise dashboard. */
 :root {
-  --bg: #f7f4ee;
+  --bg: #f5f5f3;
   --surface: #ffffff;
-  --subtle: #f1ebe0;
-  --track: #ece4d5;
-  --border: #e8e0d0;
-  --edge: #d9cdb6;
-  --fg: #2b2620;
-  --fg-soft: #635a4b;
-  --muted: #948a76;
-  --accent: #e0703f;
-  --accent-hover: #c85f31;
-  --accent-soft: rgba(224, 112, 63, 0.12);
-  --on-accent: #fffaf5;
-  --good: #4c9a5b;
-  --warn: #c1862e;
-  --bad: #c15850;
-  --shadow-card: 0 1px 2px rgba(43, 38, 32, 0.05), 0 3px 10px rgba(43, 38, 32, 0.06);
-  --shadow-pop: 0 20px 48px rgba(43, 38, 32, 0.18);
+  --subtle: #ededea;
+  --track: #e4e4e0;
+  --border: #e2e2de;
+  --edge: #c9c9c4;
+  --fg: #1c1c1e;
+  --fg-soft: #46464c;
+  --muted: #66666e;
+  --accent: #2f5f6e;
+  --accent-hover: #234a57;
+  --accent-soft: rgba(47, 95, 110, 0.12);
+  --on-accent: #ffffff;
+  --good: #2b7a46;
+  --warn: #8f5c0c;
+  --bad: #b0352d;
+  --shadow-card: 0 1px 2px rgba(20, 20, 22, 0.05), 0 3px 10px rgba(20, 20, 22, 0.05);
+  --shadow-pop: 0 20px 48px rgba(20, 20, 22, 0.18);
   color-scheme: light;
 }
 
 .dark-tokens,
 :root[data-theme="dark"] {
-  --bg: #1d1a16;
-  --surface: #29241f;
-  --subtle: #322c25;
-  --track: #171310;
-  --border: #3d362c;
-  --edge: #4f4536;
-  --fg: #f4ede1;
-  --fg-soft: #cabfa9;
-  --muted: #8f8570;
-  --accent: #ef8452;
-  --accent-hover: #f4996d;
-  --accent-soft: rgba(239, 132, 82, 0.16);
-  --on-accent: #201209;
-  --good: #63b571;
-  --warn: #dba43f;
-  --bad: #d4726a;
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --bg: #121214;
+  --surface: #1b1b1e;
+  --subtle: #25252a;
+  --track: #0d0d0f;
+  --border: #2d2d33;
+  --edge: #43434b;
+  --fg: #ececee;
+  --fg-soft: #bcbcc4;
+  --muted: #92929c;
+  --accent: #86bccb;
+  --accent-hover: #a2cfdb;
+  --accent-soft: rgba(134, 188, 203, 0.16);
+  --on-accent: #0c1a1f;
+  --good: #66bb83;
+  --warn: #e0ad55;
+  --bad: #e0827a;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-pop: 0 20px 48px rgba(0, 0, 0, 0.55);
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #1d1a16;
-    --surface: #29241f;
-    --subtle: #322c25;
-    --track: #171310;
-    --border: #3d362c;
-    --edge: #4f4536;
-    --fg: #f4ede1;
-    --fg-soft: #cabfa9;
-    --muted: #8f8570;
-    --accent: #ef8452;
-    --accent-hover: #f4996d;
-    --accent-soft: rgba(239, 132, 82, 0.16);
-    --on-accent: #201209;
-    --good: #63b571;
-    --warn: #dba43f;
-    --bad: #d4726a;
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --bg: #121214;
+    --surface: #1b1b1e;
+    --subtle: #25252a;
+    --track: #0d0d0f;
+    --border: #2d2d33;
+    --edge: #43434b;
+    --fg: #ececee;
+    --fg-soft: #bcbcc4;
+    --muted: #92929c;
+    --accent: #86bccb;
+    --accent-hover: #a2cfdb;
+    --accent-soft: rgba(134, 188, 203, 0.16);
+    --on-accent: #0c1a1f;
+    --good: #66bb83;
+    --warn: #e0ad55;
+    --bad: #e0827a;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
     --shadow-pop: 0 20px 48px rgba(0, 0, 0, 0.55);
     color-scheme: dark;
   }
@@ -83,12 +83,15 @@
   }
   body {
     @apply bg-bg text-fg antialiased m-0;
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
     transition: background-color 160ms ease, color 160ms ease;
   }
   h1,
   h2 {
-    letter-spacing: -0.015em;
+    font-family: "Fraunces", Georgia, serif;
+    letter-spacing: -0.01em;
   }
   ::-webkit-scrollbar {
     width: 10px;
@@ -113,6 +116,7 @@
 @layer components {
   .card {
     @apply bg-surface border border-border rounded-2xl shadow-card;
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-medium
@@ -121,7 +125,7 @@
   }
   .btn-primary {
     @apply btn bg-accent text-on-accent hover:bg-accent-hover active:scale-[0.98]
-           shadow-[0_2px_8px_rgba(224,112,63,0.28)];
+           shadow-card;
   }
   .btn-secondary {
     @apply btn bg-surface text-fg-soft border border-edge hover:border-accent hover:text-fg active:scale-[0.98];
@@ -147,10 +151,56 @@
     @apply inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-subtle border border-border text-fg-soft;
   }
   /* tabular numerals — aligned digits, no terminal/mono feel */
+  .font-display {
+    font-family: "Fraunces", Georgia, serif;
+  }
+  .tile-in {
+    animation: tile-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .tile-out {
+    animation: tile-out 320ms ease-in forwards;
+    pointer-events: none;
+  }
+  .tile-building {
+    position: relative;
+    overflow: hidden;
+  }
+  .tile-building::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 30%, var(--accent-soft) 50%, transparent 70%);
+    background-size: 220% 100%;
+    animation: shimmer 1.6s linear infinite;
+    pointer-events: none;
+  }
+  .spinner {
+    width: 0.9em;
+    height: 0.9em;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 9999px;
+    animation: spin 0.7s linear infinite;
+  }
   .num {
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
   }
+}
+
+@keyframes tile-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tile-out {
+  to { opacity: 0; transform: scale(0.92) translateY(6px); filter: blur(2px); }
+}
+@keyframes shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
