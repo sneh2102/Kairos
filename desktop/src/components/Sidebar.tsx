@@ -12,6 +12,8 @@ const WORKFLOW = [
   { to: "/applied", label: "Applications" },
 ];
 
+const PRACTICE = [{ to: "/interview", label: "Interview prep" }];
+
 const SETUP = [
   { to: "/resume-data", label: "Resume & profile" },
   { to: "/designer", label: "Resume designer" },
@@ -62,6 +64,14 @@ export default function Sidebar() {
                   {item.label}
                 </>
               )}
+            </NavLink>
+          ))}
+        </Group>
+
+        <Group label="Practice">
+          {PRACTICE.map((item) => (
+            <NavLink key={item.to} to={item.to} className={linkClass}>
+              {item.label}
             </NavLink>
           ))}
         </Group>

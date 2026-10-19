@@ -21,6 +21,9 @@ import Settings from "./pages/Settings";
 import Setup from "./pages/Setup";
 import Logs from "./pages/Logs";
 import Mobile from "./pages/Mobile";
+import Interview from "./pages/Interview";
+import InterviewRoom from "./pages/InterviewRoom";
+import PrepGuide from "./pages/PrepGuide";
 
 export default function App() {
   return (
@@ -65,6 +68,9 @@ function AppShell() {
             <Route path="/jobs/:id/editor" element={<LatexEditor kind="job" />} />
             <Route path="/applied/:id/editor" element={<LatexEditor kind="applied" />} />
             <Route path="/applied" element={<Applied />} />
+            <Route path="/interview" element={<Interview />} />
+            <Route path="/interview/:id" element={<InterviewRoom />} />
+            <Route path="/interview/prep/:id" element={<PrepGuide />} />
             <Route path="/resume-data" element={<ResumeData />} />
             <Route path="/designer" element={<Designer />} />
             <Route path="/templates" element={<Templates />} />

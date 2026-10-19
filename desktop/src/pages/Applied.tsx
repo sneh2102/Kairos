@@ -52,7 +52,7 @@ export default function Applied() {
   }
 
   return (
-    <div className="flex flex-col gap-4 h-full">
+    <div className="flex flex-col gap-4 h-[calc(100vh-3.5rem)] min-h-0">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-fg">Applied</h1>
@@ -71,7 +71,7 @@ export default function Applied() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-4 flex-1 min-h-0">
-        <div className="flex flex-col gap-2 overflow-y-auto pr-1">
+        <div className="flex flex-col gap-2 overflow-y-auto pr-1 min-h-0 min-w-0">
           {rows.length === 0 && <div className="text-sm text-muted">No applications yet.</div>}
           {rows.length > 0 && filteredRows.length === 0 && (
             <div className="text-sm text-muted">No applications match "{q}".</div>
@@ -88,14 +88,14 @@ export default function Applied() {
                 selected?.id === row.id ? "border-accent" : "hover:border-accent/50"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-fg text-sm">{row.title}</div>
-                  <div className="text-xs text-muted">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-fg text-sm truncate">{row.title}</div>
+                  <div className="text-xs text-muted truncate">
                     {row.company} · {row.location} · {row.applied_date}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <StatusBadge label={`ATS ${row.ats_score}`} tone={row.ats_score >= 85 ? "pass" : "maybe"} />
                   <button
                     className="text-xs text-no hover:underline"
@@ -112,16 +112,16 @@ export default function Applied() {
           ))}
         </div>
 
-        <div className="card flex flex-col min-h-[70vh]">
+        <div className="card flex flex-col min-h-0 min-w-0 overflow-hidden">
           {selected ? (
             <>
-              <div className="flex items-center justify-between border-b border-border">
+              <div className="flex flex-wrap items-center justify-between gap-y-1 border-b border-border shrink-0">
                 <div className="flex">
                   <TabButton active={tab === "resume"} onClick={() => setTab("resume")} label="Resume" />
                   <TabButton active={tab === "cover"} onClick={() => setTab("cover")} label="Cover letter" />
                   <TabButton active={tab === "details"} onClick={() => setTab("details")} label="Details" />
                 </div>
-                <div className="flex gap-2 pr-2">
+                <div className="flex flex-wrap gap-3 px-3">
                   {tab !== "details" && (
                     <a
                       href={tab === "resume" ? api.resumePdfUrl(selected.id) : api.coverPdfUrl(selected.id)}
@@ -143,7 +143,7 @@ export default function Applied() {
                 </div>
               </div>
               {driveMsg && <div className="text-xs text-yes px-3 pt-2">{driveMsg}</div>}
-              <div className="flex-1 p-2">
+              <div className="flex-1 min-h-0 p-2">
                 {tab === "details" ? (
                   <div className="p-3 text-sm text-fg-soft space-y-2 overflow-y-auto h-full">
                     <div><span className="text-muted">Years required:</span> {selected.years_required || "—"}</div>
@@ -159,7 +159,7 @@ export default function Applied() {
                     )}
                     <div className="pt-2">
                       <div className="text-muted mb-1">Job description</div>
-                      <p className="whitespace-pre-wrap text-muted">{selected.description || "—"}</p>
+                      <p className="whitespace-pre-wrap break-words text-muted">{selected.description || "—"}</p>
                     </div>
                   </div>
                 ) : (

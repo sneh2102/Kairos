@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { api } from "../lib/api";
-import type { Config } from "../lib/types";
+import type { Config, SpeechSettings, SpeechStatus } from "../lib/types";
+import { useSpeaker } from "../lib/voice";
 
-type Tab = "model" | "api-keys" | "prompts" | "scheduler" | "google-drive" | "desktop";
+type Tab = "model" | "api-keys" | "prompts" | "scheduler" | "google-drive" | "interview" | "desktop";
 
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -75,7 +76,7 @@ export default function Settings() {
       {saveError && <div className="text-sm text-no">{saveError}</div>}
 
       <div className="flex border-b border-border">
-        {(["model", "api-keys", "prompts", "scheduler", "google-drive", "desktop"] as Tab[]).map((t) => (
+        {(["model", "api-keys", "prompts", "scheduler", "google-drive", "interview", "desktop"] as Tab[]).map((t) => (
           <TabButton
             key={t}
             active={tab === t}
@@ -90,6 +91,7 @@ export default function Settings() {
       {tab === "prompts" && <PromptsTab config={config} setConfig={setConfig} />}
       {tab === "scheduler" && <SchedulerTab config={config} setConfig={setConfig} />}
       {tab === "google-drive" && <GoogleDriveTab config={config} setConfig={setConfig} save={save} saving={saving} />}
+      {tab === "interview" && <InterviewTab config={config} setConfig={setConfig} />}
       {tab === "desktop" && <DesktopTab config={config} setConfig={setConfig} />}
     </div>
   );
@@ -105,6 +107,7 @@ const TASKS: [string, string][] = [
   ["summary", "Summary & custom sections"],
   ["cover_letter", "Cover letter"],
   ["ats", "ATS checker, optimizer & LaTeX fixer"],
+  ["interview", "Mock interviewer"],
 ];
 
 function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
@@ -499,6 +502,195 @@ function SchedulerTab({ config, setConfig }: { config: Config; setConfig: Setter
         Automatically run the scraper every day
       </label>
       <LabeledInput label="Time (24h, local)" value={sched.time} onChange={(v) => set({ time: v })} />
+    </div>
+  );
+}
+
+const SPEECH_DEFAULTS: SpeechSettings = {
+  stt_engine: "local",
+  whisper_model: "small.en",
+  whisper_device: "auto",
+  groq_api_key: "",
+  tts_engine: "kokoro",
+  kokoro_voice: "af_heart",
+  edge_voice: "en-US-AndrewNeural",
+  tts_speed: 1,
+};
+
+const WHISPER_MODELS: [string, string][] = [
+  ["tiny.en", "tiny.en — ~75 MB, fastest, least accurate"],
+  ["base.en", "base.en — ~145 MB"],
+  ["small.en", "small.en — ~480 MB, recommended"],
+  ["distil-large-v3", "distil-large-v3 — ~1.5 GB, best accuracy for speed (GPU)"],
+  ["large-v3-turbo", "large-v3-turbo — ~1.6 GB, most accurate (GPU)"],
+];
+
+const EDGE_VOICES = ["en-US-AndrewNeural", "en-US-AvaNeural", "en-US-BrianNeural", "en-US-EmmaNeural", "en-GB-RyanNeural", "en-GB-SoniaNeural", "en-IN-PrabhatNeural", "en-IN-NeerjaNeural"];
+
+function InterviewTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
+  const s: SpeechSettings = { ...SPEECH_DEFAULTS, ...config.interview };
+  const set = (patch: Partial<SpeechSettings>) => setConfig({ ...config, interview: { ...s, ...patch } });
+  const [status, setStatus] = useState<SpeechStatus | null>(null);
+  const [voices, setVoices] = useState<string[]>([]);
+  const speaker = useSpeaker();
+
+  function refresh() {
+    api.speechStatus().then(setStatus).catch(() => {});
+    api.speechVoices().then((v) => setVoices(v.kokoro)).catch(() => {});
+  }
+  useEffect(refresh, []);
+  const downloading = status && (status.whisper.download === "downloading" || status.kokoro.download === "downloading");
+  useEffect(() => {
+    if (!downloading) return;
+    const t = setInterval(refresh, 2000);
+    return () => clearInterval(t);
+  }, [downloading]);
+
+  // status reflects the SAVED model; a just-picked, unsaved size has no status yet
+  const whisperStatus = status?.whisper.model === s.whisper_model ? status.whisper : null;
+  const sample = "Thanks for joining. Let's start with a quick overview of your background.";
+
+  return (
+    <div className="flex flex-col gap-6 max-w-3xl">
+      <section className="flex flex-col gap-3">
+        <div className="text-sm font-semibold text-fg">Speech recognition (your answers)</div>
+        <div className="grid grid-cols-2 gap-3">
+          <label>
+            <span className="label">Engine</span>
+            <select className="input" value={s.stt_engine} onChange={(e) => set({ stt_engine: e.target.value as SpeechSettings["stt_engine"] })}>
+              <option value="local">Whisper on this PC (offline)</option>
+              <option value="groq">Groq Whisper (free online API)</option>
+            </select>
+          </label>
+          <label>
+            <span className="label">Run on</span>
+            <select
+              className="input"
+              value={s.whisper_device}
+              onChange={(e) => set({ whisper_device: e.target.value as SpeechSettings["whisper_device"] })}
+            >
+              <option value="auto">Auto (GPU if available)</option>
+              <option value="cuda">GPU (CUDA)</option>
+              <option value="cpu">CPU</option>
+            </select>
+          </label>
+          <label className="col-span-2">
+            <span className="label">Whisper model</span>
+            <select className="input" value={s.whisper_model} onChange={(e) => set({ whisper_model: e.target.value })}>
+              {WHISPER_MODELS.map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="text-xs text-muted flex items-center gap-3">
+          {!whisperStatus ? (
+            <span>Save to check this model.</span>
+          ) : whisperStatus.ready ? (
+            <span className="text-yes">
+              ✓ Downloaded{whisperStatus.device ? ` · running on ${whisperStatus.device.toUpperCase()}` : ""}
+            </span>
+          ) : whisperStatus.download === "downloading" ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="spinner" /> Downloading…
+            </span>
+          ) : (
+            <>
+              <span>Not downloaded.</span>
+              <button className="text-accent hover:underline" onClick={() => api.speechDownload(`whisper:${s.whisper_model}`).then(refresh)}>
+                Download now
+              </button>
+              {whisperStatus.download?.startsWith("error") && <span className="text-no">{whisperStatus.download}</span>}
+            </>
+          )}
+        </div>
+        <label>
+          <span className="label">Groq API key (optional; also used as a backup when local Whisper fails)</span>
+          <input
+            className="input font-mono text-xs"
+            type="password"
+            placeholder="gsk_… — free at console.groq.com"
+            value={s.groq_api_key}
+            onChange={(e) => set({ groq_api_key: e.target.value.trim() })}
+          />
+        </label>
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-border pt-5">
+        <div className="text-sm font-semibold text-fg">Interviewer voice</div>
+        <div className="grid grid-cols-2 gap-3">
+          <label>
+            <span className="label">Engine</span>
+            <select className="input" value={s.tts_engine} onChange={(e) => set({ tts_engine: e.target.value as SpeechSettings["tts_engine"] })}>
+              <option value="kokoro">Kokoro on this PC (offline, natural)</option>
+              <option value="edge">Microsoft Edge voices (free, online)</option>
+              <option value="browser">Built-in system voice</option>
+            </select>
+          </label>
+          {s.tts_engine === "kokoro" && (
+            <label>
+              <span className="label">Voice</span>
+              {voices.length ? (
+                <select className="input" value={s.kokoro_voice} onChange={(e) => set({ kokoro_voice: e.target.value })}>
+                  {voices.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              ) : status?.kokoro.download === "downloading" ? (
+                <div className="input text-muted inline-flex items-center gap-2">
+                  <span className="spinner" /> Downloading voice model…
+                </div>
+              ) : (
+                <button className="btn-secondary w-full" onClick={() => api.speechDownload("kokoro").then(refresh)}>
+                  Download voice model (~120 MB)
+                </button>
+              )}
+            </label>
+          )}
+          {s.tts_engine === "edge" && (
+            <label>
+              <span className="label">Voice</span>
+              <select className="input" value={s.edge_voice} onChange={(e) => set({ edge_voice: e.target.value })}>
+                {EDGE_VOICES.map((v) => (
+                  <option key={v} value={v}>
+                    {v.replace("Neural", "")}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="col-span-2">
+            <span className="label">Speaking speed: {s.tts_speed.toFixed(2)}×</span>
+            <input
+              type="range"
+              min={0.7}
+              max={1.4}
+              step={0.05}
+              value={s.tts_speed}
+              onChange={(e) => set({ tts_speed: Number(e.target.value) })}
+              className="w-full accent-[color:var(--accent)]"
+            />
+          </label>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            className="btn-secondary !py-1.5"
+            onClick={() => (speaker.speaking ? speaker.stop() : speaker.play(() => api.speak(sample, s), sample))}
+          >
+            {speaker.speaking ? "Stop" : "Preview voice"}
+          </button>
+          <span className="text-xs text-muted">Previews the settings above, even before you save.</span>
+        </div>
+      </section>
+
+      <p className="text-xs text-muted border-t border-border pt-4">
+        The interviewer's AI follows <strong className="text-fg-soft">Model › Provider per task › Mock interviewer</strong>. Gemini Flash
+        gives the fastest replies. Edit its prompt on the AI prompts page.
+      </p>
     </div>
   );
 }

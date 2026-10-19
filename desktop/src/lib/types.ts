@@ -220,6 +220,7 @@ export interface Config {
   };
   scheduler?: { enabled: boolean; time: string; autopilot?: boolean };
   desktop?: { runInBackground: boolean; launchOnStartup: boolean };
+  interview?: Partial<SpeechSettings>;
   [key: string]: unknown;
 }
 
@@ -251,3 +252,125 @@ export type WsEvent =
       job_id?: number;
     }
   | { type: "done"; stage: "scrape" | "apply" };
+
+// ---- interview prep ----------------------------------------------------------
+
+export interface SpeechSettings {
+  stt_engine: "local" | "groq";
+  whisper_model: string;
+  whisper_device: "auto" | "cuda" | "cpu";
+  groq_api_key: string;
+  tts_engine: "kokoro" | "edge" | "browser";
+  kokoro_voice: string;
+  edge_voice: string;
+  tts_speed: number;
+}
+
+export interface SpeechStatus {
+  whisper: { model: string; ready: boolean; download: string | null; device: string | null };
+  kokoro: { ready: boolean; download: string | null };
+}
+
+export interface Transcript {
+  text: string;
+  words: { w: string; s: number; e: number }[];
+  duration: number;
+}
+
+export type InterviewKind = "general" | "behavioral" | "resume" | "technical";
+
+export interface AnswerEval {
+  score: number;
+  star?: { situation?: boolean; task?: boolean; action?: boolean; result?: boolean };
+  criteria?: Record<string, number>;
+  strengths?: string[];
+  improvements?: string[];
+  better_answer?: string;
+  missed_concepts?: string[];
+  error?: string; // scoring failed; POST /score retries it
+}
+
+export interface InterviewTurn {
+  id: number;
+  session_id: number;
+  speaker: "interviewer" | "candidate";
+  text: string;
+  words: Transcript["words"];
+  duration: number;
+  created_at: string;
+  // interviewer: which planned question; candidate: {skipped}
+  meta: { qi?: number; followups?: number; topic?: string; followup?: boolean; closing?: boolean; skipped?: boolean };
+  eval: AnswerEval | null;
+}
+
+export interface InterviewConfig {
+  role?: string;
+  company?: string;
+  job_id?: number;
+  job_source?: "jobs" | "applied";
+  length?: "short" | "standard" | "long";
+  persona?: "friendly" | "neutral" | "tough";
+  interviewer_name?: string;
+  topics?: string[];
+  difficulty?: "junior" | "mid" | "senior";
+}
+
+export interface PlannedQuestion {
+  topic: string;
+  question: string;
+  code?: string; // technical: snippet shown on screen
+  language?: string;
+}
+
+export interface InterviewSessionSummary {
+  id: number;
+  kind: InterviewKind;
+  title: string;
+  status: "active" | "ended";
+  score: number | null;
+  started_at: string;
+  ended_at: string | null;
+  answers: number;
+  avg_score: number | null;
+}
+
+export interface InterviewSession extends Omit<InterviewSessionSummary, "answers" | "avg_score"> {
+  config: InterviewConfig;
+  context: { company?: string; title?: string; description?: string; plan?: PlannedQuestion[] };
+  turns: InterviewTurn[];
+}
+
+// ---- interview prep guides -------------------------------------------------------
+
+export interface PrepGuideSummary {
+  id: number;
+  title: string;
+  company: string;
+  job_source: string;
+  job_id: number | null;
+  created_at: string;
+}
+
+export interface PrepGuide extends PrepGuideSummary {
+  content: {
+    company_info: {
+      web: boolean; // false = no live research; company facts left out
+      sources: { n: number; title: string; url: string }[];
+      overview?: string;
+      facts?: { label: string; value: string }[];
+      products?: string[];
+      values?: string[];
+      recent_news?: { headline: string; date?: string }[];
+      tech_stack?: string[];
+      interview_process?: string[];
+      culture?: string[];
+      talking_points?: string[];
+    };
+    role_summary?: string;
+    focus_areas?: { topic: string; why: string }[];
+    fit?: { strengths?: string[]; gaps?: { gap: string; how_to_prepare: string }[] };
+    qa?: { category: string; question: string; answer: string; tip?: string }[];
+    questions_to_ask?: string[];
+    resources?: { topic: string; title: string; url: string; why: string }[];
+  };
+}

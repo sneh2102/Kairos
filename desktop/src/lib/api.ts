@@ -1,4 +1,8 @@
-import type { AppliedRow, Config, CustomSection, ExperienceRole, GithubRepo, JobRow, Layout, PromptInfo, Stats, TemplateInfo } from "./types";
+import type {
+  AppliedRow, Config, CustomSection, ExperienceRole, GithubRepo, InterviewConfig, InterviewKind, InterviewSession,
+  InterviewSessionSummary,
+  InterviewTurn, JobRow, Layout, PrepGuide, PrepGuideSummary, PromptInfo, SpeechSettings, SpeechStatus, Stats, TemplateInfo, Transcript,
+} from "./types";
 
 // Electron always talks to its own local backend directly, no password needed.
 // A standalone web deploy has no localhost backend to talk to, so it reads the
@@ -137,6 +141,7 @@ export const api = {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
     return request<JobRow[]>(`/api/jobs?${qs.toString()}`);
   },
+  setExtensionJob: (id: number) => request(`/api/extension/current/${id}`, { method: "POST" }),
   getJob: (id: number) => request<JobRow>(`/api/jobs/${id}`),
   addManualJob: (payload: { title: string; company: string; location: string; job_url: string; description: string }) =>
     request<JobRow>("/api/jobs/manual", { method: "POST", body: JSON.stringify(payload) }),
@@ -222,4 +227,58 @@ export const api = {
     request<{ resume_link?: string; cover_link?: string }>(`/api/jobs/${id}/upload-to-drive`, { method: "POST" }),
   uploadAppliedToDrive: (id: number) =>
     request<{ resume_link?: string; cover_link?: string }>(`/api/applied/${id}/upload-to-drive`, { method: "POST" }),
+
+  // ---- interview prep ----
+  speechStatus: () => request<SpeechStatus>("/api/speech/status"),
+  speechDownload: (what: string) =>
+    request<{ started: boolean }>("/api/speech/download", { method: "POST", body: JSON.stringify({ what }) }),
+  speechWarmup: () => request("/api/speech/warmup", { method: "POST" }),
+  speechVoices: () => request<{ kokoro: string[] }>("/api/speech/voices"),
+  // raw audio body, not multipart
+  transcribe: async (audio: Blob): Promise<Transcript> => {
+    const res = await fetch(`${BACKEND_URL}/api/speech/transcribe`, {
+      method: "POST",
+      headers: { "Content-Type": audio.type || "audio/webm", ...(TOKEN ? { "x-api-token": TOKEN } : {}) },
+      body: audio,
+    });
+    if (!res.ok) throw new Error(await res.json().then((b) => b.detail).catch(() => `Transcription failed (${res.status})`));
+    return res.json();
+  },
+  // null = 204: the server has no voice for this, speak it in the browser
+  speak: (text: string, settings?: Partial<SpeechSettings>) =>
+    fetchAudio("/api/speech/tts", { method: "POST", body: JSON.stringify({ text, settings }) }),
+  turnSpeech: (turnId: number) => fetchAudio(`/api/interview/turns/${turnId}/speech`),
+
+  listInterviews: () => request<InterviewSessionSummary[]>("/api/interview/sessions"),
+  getInterview: (id: number) => request<InterviewSession>(`/api/interview/sessions/${id}`),
+  createInterview: (kind: InterviewKind, config: InterviewConfig) =>
+    request<InterviewSession>("/api/interview/sessions", { method: "POST", body: JSON.stringify({ kind, config }) }),
+  answerInterview: (
+    id: number,
+    body: { text?: string; words?: Transcript["words"]; duration?: number; edit_turn_id?: number; skip?: boolean },
+  ) =>
+    request<{ candidate: InterviewTurn | null; interviewer: InterviewTurn; done: boolean }>(
+      `/api/interview/sessions/${id}/answer`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  scoreMissing: (id: number) => request<{ scoring: number }>(`/api/interview/sessions/${id}/score`, { method: "POST" }),
+  endInterview: (id: number) => request<InterviewSession>(`/api/interview/sessions/${id}/end`, { method: "POST" }),
+  deleteInterview: (id: number) => request(`/api/interview/sessions/${id}`, { method: "DELETE" }),
+
+  // body: {job_source, job_id} or {role, company}; takes ~20-60s (web research + generation)
+  createPrepGuide: (body: { job_source?: string; job_id?: number; role?: string; company?: string }) =>
+    request<PrepGuide>("/api/prep", { method: "POST", body: JSON.stringify(body) }),
+  listPrepGuides: () => request<PrepGuideSummary[]>("/api/prep"),
+  getPrepGuide: (id: number) => request<PrepGuide>(`/api/prep/${id}`),
+  deletePrepGuide: (id: number) => request(`/api/prep/${id}`, { method: "DELETE" }),
 };
+
+async function fetchAudio(path: string, options?: RequestInit): Promise<Blob | null> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(TOKEN ? { "x-api-token": TOKEN } : {}) },
+  });
+  if (res.status === 204) return null;
+  if (!res.ok) throw new Error(`Speech failed (${res.status})`);
+  return res.blob();
+}

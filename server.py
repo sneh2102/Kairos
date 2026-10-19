@@ -19,17 +19,18 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 import config
-from agents import (custom_section_writer, experience_writer, github_importer, project_writer,
-                    prompt_registry, screener, skills_writer)
+from agents import (custom_section_writer, experience_writer, github_importer, interviewer, project_writer,
+                    prep_guide, prompt_registry, screener, skills_writer)
 from config import CONFIG
-from db.manager import AppliedDB, JobsDB, mark_applied, unmark_applied
+from db.manager import AppliedDB, InterviewDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
 from graph.scrape_graph import build_scrape_graph
 from llm.client import make_client, validate_api_key, validate_gemini_key
-from tools import designer, google_drive, latex, templates
+from tools import designer, google_drive, latex, speech, templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -79,6 +80,7 @@ async def require_tunnel_token(request: Request, call_next):
 
 jobs_db = JobsDB()
 applied_db = AppliedDB()
+interview_db = InterviewDB()
 
 
 # ---- live event broadcast (worker threads -> WebSocket clients) -----------
@@ -331,6 +333,39 @@ def get_resume_data():
         "custom_sections": CONFIG.get("custom_sections", []),
         "section_order": CONFIG.get("section_order", []),
     }
+
+
+# ---- browser extension ------------------------------------------------------
+
+_extension_job_id: int | None = None  # the job open in the Jobs review page
+
+
+@app.post("/api/extension/current/{job_id}")
+def extension_set_current(job_id: int):
+    global _extension_job_id
+    _extension_job_id = job_id
+    return {"ok": True}
+
+
+@app.get("/api/extension/context")
+def extension_context():
+    """Everything the autofill extension needs: the job currently open in Jobs review,
+    its cover letter, the resume text and the projects."""
+    job = _extension_job_id and jobs_db.get_by_id(_extension_job_id)
+    data = get_resume_data()
+    return {
+        "job": job and {k: job.get(k) or "" for k in ("title", "company", "location", "description", "link")},
+        "cover_letter": (job or {}).get("cover_letter_content") or "",
+        "resume_text": data["resume_text"],
+        "projects_text": data["projects_text"],
+    }
+
+
+@app.post("/api/extension/complete")
+def extension_complete(payload: dict = Body(...)):
+    """Lets the extension use Kairos's configured model and keys instead of its own."""
+    client = make_client(CONFIG["model"]["pipeline"], "cover_letter")
+    return {"text": client.complete(payload.get("system", ""), payload.get("user", ""), max_tokens=16000)}
 
 
 @app.get("/api/ollama-key")
@@ -1050,3 +1085,247 @@ def _scheduler_loop():
             if not _is_running("scrape"):
                 broadcaster.emit({"type": "log", "level": "INFO", "message": "Scheduled scrape starting"})
                 _run_scrape()
+
+
+# ---- interview prep: speech -------------------------------------------------
+
+_AUDIO_SUFFIX = {"audio/webm": ".webm", "audio/ogg": ".ogg", "audio/wav": ".wav", "audio/x-wav": ".wav",
+                 "audio/mpeg": ".mp3", "audio/mp4": ".m4a"}
+
+
+@app.get("/api/speech/status")
+def speech_status():
+    return speech.status()
+
+
+@app.post("/api/speech/download")
+def speech_download(payload: dict = Body(...)):
+    what = payload.get("what", "")
+    if what != "kokoro" and not what.startswith("whisper:"):
+        raise HTTPException(400, "what must be 'kokoro' or 'whisper:<size>'")
+    speech.start_download(what)
+    return {"started": True}
+
+
+@app.post("/api/speech/warmup")
+def speech_warmup():
+    speech.warmup()
+    return {"ok": True}
+
+
+@app.get("/api/speech/voices")
+def speech_voices():
+    return {"kokoro": speech.kokoro_voices()}
+
+
+@app.post("/api/speech/transcribe")
+async def speech_transcribe(request: Request):
+    # raw audio body (not multipart) — avoids a python-multipart dependency
+    audio = await request.body()
+    if len(audio) < 200:
+        raise HTTPException(400, "No audio received")
+    suffix = _AUDIO_SUFFIX.get(request.headers.get("content-type", "").split(";")[0], ".webm")
+    try:
+        return await run_in_threadpool(speech.transcribe, audio, suffix)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.post("/api/speech/tts")
+def speech_tts(payload: dict = Body(...)):
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "text is empty")
+    out = speech.synthesize(text[:2000], payload.get("settings"))
+    if out is None:   # browser engine, or every server engine failed: the renderer speaks it
+        return Response(status_code=204)
+    return Response(out[0], media_type=out[1])
+
+
+# ---- interview prep: sessions -----------------------------------------------
+
+def _job_context(source: str, job_id) -> dict:
+    if not job_id:
+        return {}
+    row = (applied_db if source == "applied" else jobs_db).get_by_id(int(job_id))
+    if not row:
+        raise HTTPException(404, "linked job not found")
+    return {"company": row.get("company", ""), "title": row.get("title", ""),
+            "description": row.get("description", ""), "source": source, "job_id": int(job_id)}
+
+
+def _interviewer_reply(sid: int) -> dict:
+    """Generates and stores the interviewer's next turn; ends the session on the closing turn."""
+    session = interview_db.get_session(sid)
+    try:
+        out = interviewer.next_turn(session)
+    except Exception as e:
+        logging.exception("interviewer turn failed")
+        raise HTTPException(502, f"Interviewer AI failed: {e}")
+    turn = interview_db.add_turn(sid, "interviewer", out["reply"], meta=out["meta"])
+    if out["done"]:
+        interview_db.end_session(sid)
+    return {"turn": turn, "done": out["done"]}
+
+
+@app.post("/api/interview/sessions")
+def interview_create(payload: dict = Body(...)):
+    kind = payload.get("kind", "general")
+    if kind not in interviewer.KINDS:
+        raise HTTPException(400, f"unknown interview kind: {kind}")
+    cfg = payload.get("config") or {}
+    if kind == "technical":
+        cfg["topics"] = [str(t).strip()[:40] for t in cfg.get("topics") or [] if str(t).strip()][:8]
+        if not cfg["topics"]:
+            raise HTTPException(400, "Pick at least one topic for a tech-stack interview")
+    ctx = _job_context(cfg.get("job_source", "jobs"), cfg.get("job_id"))
+    role, company = ctx.get("title") or cfg.get("role") or "", ctx.get("company") or cfg.get("company") or ""
+    title = f"{role} @ {company}" if role and company else role or company or "Practice"
+    sid = interview_db.create_session(kind, title, cfg, ctx)
+    ctx["plan"] = interviewer.plan_questions(interview_db.get_session(sid))
+    interview_db.update_context(sid, ctx)
+    try:
+        _interviewer_reply(sid)
+    except HTTPException:
+        pass   # session exists; the room offers Retry, which calls /answer with no text
+    return interview_db.get_session(sid)
+
+
+@app.get("/api/interview/sessions")
+def interview_list():
+    return interview_db.list_sessions()
+
+
+@app.get("/api/interview/sessions/{sid}")
+def interview_get(sid: int):
+    session = interview_db.get_session(sid)
+    if not session:
+        raise HTTPException(404, "session not found")
+    return session
+
+
+@app.delete("/api/interview/sessions/{sid}")
+def interview_delete(sid: int):
+    import shutil
+    interview_db.delete_session(sid)
+    shutil.rmtree(config.DATA_DIR / "interviews" / str(sid), ignore_errors=True)
+    return {"deleted": True}
+
+
+@app.post("/api/interview/sessions/{sid}/answer")
+def interview_answer(sid: int, payload: dict = Body(...)):
+    """Body: {text, words?, duration?, edit_turn_id?, skip?}. Empty text = just
+    get the interviewer's next turn (retry after an AI failure). edit_turn_id
+    replaces that answer and drops everything said after it. The answer is
+    scored in the background while the interviewer replies."""
+    session = interview_db.get_session(sid)
+    if not session:
+        raise HTTPException(404, "session not found")
+    if session["status"] != "active":
+        raise HTTPException(409, "This interview has ended")
+    text = (payload.get("text") or "").strip()
+    if payload.get("edit_turn_id"):
+        interview_db.delete_turns_from(sid, int(payload["edit_turn_id"]))
+    candidate = None
+    if payload.get("skip"):
+        candidate = interview_db.add_turn(sid, "candidate", "(skipped this question)", meta={"skipped": True})
+    elif text:
+        candidate = interview_db.add_turn(sid, "candidate", text, payload.get("words"), payload.get("duration") or 0)
+        threading.Thread(target=_score_answer, args=(sid, candidate["id"]), daemon=True).start()
+    turns = interview_db.get_session(sid)["turns"]
+    if turns and turns[-1]["speaker"] == "interviewer":
+        raise HTTPException(400, "Nothing to respond to — send an answer")
+    reply = _interviewer_reply(sid)
+    return {"candidate": candidate, "interviewer": reply["turn"], "done": reply["done"]}
+
+
+def _score_answer(sid: int, tid: int):
+    session = interview_db.get_session(sid)
+    if not session:
+        return
+    try:
+        result = interviewer.evaluate(session, tid)
+    except Exception as e:
+        logging.warning("scoring answer %s failed: %s", tid, e)
+        result = {"error": str(e)[:300]}
+    if result is not None and interview_db.get_turn(tid):   # turn may have been edited away meanwhile
+        interview_db.set_eval(tid, result)
+
+
+@app.post("/api/interview/sessions/{sid}/score")
+def interview_score_missing(sid: int):
+    """Re-scores answers whose scoring failed or never ran (e.g. backend restarted mid-interview)."""
+    session = interview_db.get_session(sid)
+    if not session:
+        raise HTTPException(404, "session not found")
+    todo = [t["id"] for t in session["turns"] if t["speaker"] == "candidate"
+            and not (t["meta"] or {}).get("skipped") and (not t["eval"] or "error" in t["eval"])]
+    for tid in todo:
+        threading.Thread(target=_score_answer, args=(sid, tid), daemon=True).start()
+    return {"scoring": len(todo)}
+
+
+@app.post("/api/interview/sessions/{sid}/end")
+def interview_end(sid: int):
+    interview_db.end_session(sid)
+    return interview_db.get_session(sid)
+
+
+# ---- interview prep: study guides -------------------------------------------
+
+@app.post("/api/prep")
+def prep_create(payload: dict = Body(...)):
+    """Body: {job_source, job_id} or {role, company}. Takes ~30-60s (web research + generation)."""
+    ctx = _job_context(payload.get("job_source", "jobs"), payload.get("job_id"))
+    title = ctx.get("title") or (payload.get("role") or "").strip()
+    company = ctx.get("company") or (payload.get("company") or "").strip()
+    if not title and not company:
+        raise HTTPException(400, "Pick a job, or enter a role or company")
+    try:
+        content = prep_guide.generate(company, title, ctx.get("description", ""))
+    except Exception as e:
+        logging.exception("prep guide failed")
+        raise HTTPException(502, f"Couldn't build the prep guide: {e}")
+    gid = interview_db.save_guide(title, company, ctx.get("source", ""), ctx.get("job_id"), content)
+    return interview_db.get_guide(gid)
+
+
+@app.get("/api/prep")
+def prep_list():
+    return interview_db.list_guides()
+
+
+@app.get("/api/prep/{gid}")
+def prep_get(gid: int):
+    guide = interview_db.get_guide(gid)
+    if not guide:
+        raise HTTPException(404, "guide not found")
+    return guide
+
+
+@app.delete("/api/prep/{gid}")
+def prep_delete(gid: int):
+    interview_db.delete_guide(gid)
+    return {"deleted": True}
+
+
+@app.get("/api/interview/turns/{tid}/speech")
+def interview_turn_speech(tid: int):
+    turn = interview_db.get_turn(tid)
+    if not turn or turn["speaker"] != "interviewer":
+        raise HTTPException(404, "turn not found")
+    s = speech.settings()
+    voice = s["kokoro_voice"] if s["tts_engine"] == "kokoro" else s["edge_voice"]
+    # cached per voice setting: replays (Repeat question) are instant, a voice change re-renders
+    folder = config.DATA_DIR / "interviews" / str(turn["session_id"])
+    stem = f"{tid}_{s['tts_engine']}_{voice}_{s['tts_speed']}"
+    for ext, mime in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
+        if (folder / (stem + ext)).exists():
+            return FileResponse(folder / (stem + ext), media_type=mime)
+    out = speech.synthesize(turn["text"])
+    if out is None:
+        return Response(status_code=204)
+    audio, mime = out
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / (stem + (".wav" if mime == "audio/wav" else ".mp3"))).write_bytes(audio)
+    return Response(audio, media_type=mime)
