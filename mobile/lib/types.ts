@@ -163,7 +163,6 @@ export interface Config {
   experience_roles: ExperienceRole[];
   custom_sections: CustomSection[];
   github: { token: string };
-  google: { client_id: string; client_secret: string };
   prompts: { job_screener: string; [key: string]: string };
   screener: {
     max_years_exp: number;

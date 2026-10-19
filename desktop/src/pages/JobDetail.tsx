@@ -13,7 +13,6 @@ export default function JobDetail() {
   const [job, setJob] = useState<JobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const [tab, setTab] = useState<"resume" | "cover">("resume");
   const { applyProgress } = useEventStream();
 
@@ -70,19 +69,6 @@ export default function JobDetail() {
     navigate(-1);
   }
 
-  async function uploadToDrive() {
-    setBusy("drive");
-    setError(null);
-    try {
-      await api.uploadJobToDrive(jobId);
-      setDriveMsg("Uploaded to Google Drive.");
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   const hasResume = !!job.latex_content;
   const building = progress && progress.stage !== "done" && progress.stage !== "cancelled";
 
@@ -98,17 +84,17 @@ export default function JobDetail() {
           <h1 className="text-lg font-semibold text-fg truncate">{job.title}</h1>
           <div className="text-sm text-muted truncate">
             {job.company} · {job.location} · {job.site} · posted {job.posted_date || "unknown"}
-            {job.link && (
-              <>
-                {" · "}
-                <a href={job.link} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                  Original posting
-                </a>
-              </>
-            )}
           </div>
         </div>
-        <StatusBadge label={job.ai_recommendation.toUpperCase()} tone={job.ai_recommendation} />
+        <div className="flex items-center gap-3 shrink-0">
+          {job.link && (
+            <a href={job.link} target="_blank" rel="noreferrer"
+               className="btn-secondary !py-1.5 !border-accent !text-accent font-medium">
+              Open original posting ↗
+            </a>
+          )}
+          <StatusBadge label={job.ai_recommendation.toUpperCase()} tone={job.ai_recommendation} />
+        </div>
       </div>
 
       <div className="card p-2.5 flex flex-wrap items-center gap-2">
@@ -129,9 +115,6 @@ export default function JobDetail() {
         )}
         <button className="btn-secondary !py-1.5" onClick={() => navigate(`/jobs/${jobId}/editor`)} disabled={!hasResume}>
           LaTeX editor
-        </button>
-        <button className="btn-secondary !py-1.5" onClick={uploadToDrive} disabled={!hasResume || busy === "drive"}>
-          {busy === "drive" ? "Uploading…" : "Upload to Drive"}
         </button>
         {hasResume && (
           <>
@@ -155,10 +138,9 @@ export default function JobDetail() {
         <button className="btn-danger !py-1.5" onClick={remove}>Delete</button>
       </div>
 
-      {(error || driveMsg || (progress && typeof progress.score === "number")) && (
+      {(error || (progress && typeof progress.score === "number")) && (
         <div className="text-xs flex gap-3">
           {error && <span className="text-no">{error}</span>}
-          {driveMsg && <span className="text-yes">{driveMsg}</span>}
           {progress && typeof progress.score === "number" && (
             <span className="text-muted">Latest ATS score: {progress.score} (iteration {progress.iteration})</span>
           )}

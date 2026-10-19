@@ -105,10 +105,7 @@ export const api = {
   getScheduler: () => get<{ enabled: boolean; time: string }>("/api/scheduler"),
   putScheduler: (payload: { enabled: boolean; time: string }) => send("PUT", "/api/scheduler", payload),
 
-  googleStatus: () => get<{ configured: boolean; connected: boolean; email: string }>("/api/google/status"),
   greenhouseStatus: () => get<{ connected: boolean }>("/api/greenhouse/status"),
-  uploadJobToDrive: (id: number) => send<{ resume_link?: string; cover_link?: string }>("POST", `/api/jobs/${id}/upload-to-drive`),
-  uploadAppliedToDrive: (id: number) => send<{ resume_link?: string; cover_link?: string }>("POST", `/api/applied/${id}/upload-to-drive`),
 };
 
 function safeName(s: string) {

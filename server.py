@@ -13,13 +13,12 @@ import sys
 import threading
 import time
 import uuid
-import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 import config
@@ -30,7 +29,7 @@ from db.manager import AppliedDB, InterviewDB, JobsDB, mark_applied, unmark_appl
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
 from graph.scrape_graph import build_scrape_graph
 from llm.client import make_client, validate_api_key, validate_gemini_key
-from tools import designer, google_drive, latex, speech, templates
+from tools import designer, latex, speech, templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -158,65 +157,13 @@ def put_config(new_cfg: dict = Body(...)):
     # wipe api_keys on a full-config save — always preserve them if omitted.
     if "api_keys" not in new_cfg:
         new_cfg["api_keys"] = CONFIG.get("api_keys", [])
-    # Settings only edits google.client_id/client_secret — the OAuth tokens
-    # are server-managed (set by /api/google/callback) and must survive a
-    # save made from a client that fetched config before connecting.
-    existing_google = CONFIG.get("google", {})
-    new_google = new_cfg.get("google") or {}
-    new_cfg["google"] = {
-        "client_id": new_google.get("client_id", existing_google.get("client_id", "")),
-        "client_secret": new_google.get("client_secret", existing_google.get("client_secret", "")),
-        "refresh_token": existing_google.get("refresh_token", ""),
-        "connected_email": existing_google.get("connected_email", ""),
-        "folder_id": existing_google.get("folder_id", ""),
-    }
-    # greenhouse_cookie is likewise server-managed (set by /api/greenhouse/connect) —
+    # greenhouse_cookie is server-managed (set by /api/greenhouse/connect) —
     # a client's config, fetched before a connect finished, would otherwise wipe it.
     new_scraper = new_cfg.get("scraper") or {}
     new_scraper["greenhouse_cookie"] = CONFIG.get("scraper", {}).get("greenhouse_cookie", "")
     new_cfg["scraper"] = new_scraper
     config.save_config(new_cfg)
     return {"saved": True}
-
-
-@app.get("/api/google/status")
-def google_status():
-    g = CONFIG.get("google", {})
-    return {
-        "configured": google_drive.is_configured(),
-        "connected": google_drive.is_connected(),
-        "email": g.get("connected_email", ""),
-    }
-
-
-@app.post("/api/google/connect")
-def google_connect():
-    try:
-        url = google_drive.start_auth()
-    except RuntimeError as e:
-        raise HTTPException(400, str(e))
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
-    return {"auth_url": url}
-
-
-@app.get("/api/google/callback")
-def google_callback(code: str = "", state: str = "", error: str = ""):
-    if error:
-        return HTMLResponse(f"<h3>Google sign-in failed: {error}</h3><p>Close this tab and try again.</p>")
-    try:
-        email = google_drive.finish_auth(code, state)
-    except Exception as e:
-        return HTMLResponse(f"<h3>Connection failed</h3><p>{e}</p>")
-    return HTMLResponse(f"<h3>Connected to Google Drive as {email}</h3><p>You can close this tab and go back to the app.</p>")
-
-
-@app.post("/api/google/disconnect")
-def google_disconnect():
-    google_drive.disconnect()
-    return {"disconnected": True}
 
 
 @app.get("/api/greenhouse/status")
@@ -269,39 +216,6 @@ def jobright_disconnect():
     from jobspy.jobright.session import state_path
     state_path().unlink(missing_ok=True)
     return {"disconnected": True}
-
-
-def _upload_row_to_drive(row: dict, prefix: str) -> dict:
-    if not google_drive.is_connected():
-        raise HTTPException(400, "Connect Google Drive in Settings first.")
-    links = {}
-    resume_path = row.get("resume_path")
-    if resume_path and Path(resume_path).exists():
-        links["resume_link"] = google_drive.upload_pdf(resume_path, f"{prefix} - Resume.pdf")
-    cover_path = row.get("cover_path")
-    if cover_path and Path(cover_path).exists():
-        links["cover_link"] = google_drive.upload_pdf(cover_path, f"{prefix} - Cover Letter.pdf")
-    if not links:
-        raise HTTPException(404, "No built PDFs for this record yet.")
-    return links
-
-
-@app.post("/api/jobs/{job_id}/upload-to-drive")
-def upload_job_to_drive(job_id: int):
-    job = jobs_db.get_by_id(job_id)
-    if not job:
-        raise HTTPException(404, "job not found")
-    prefix = f"{latex.sanitize_folder_name(job['company'])}_{latex.sanitize_folder_name(job['title'])}"
-    return _upload_row_to_drive(job, prefix)
-
-
-@app.post("/api/applied/{applied_id}/upload-to-drive")
-def upload_applied_to_drive(applied_id: int):
-    row = applied_db.get_by_id(applied_id)
-    if not row:
-        raise HTTPException(404, "application not found")
-    prefix = f"{latex.sanitize_folder_name(row['company'])}_{latex.sanitize_folder_name(row['title'])}"
-    return _upload_row_to_drive(row, prefix)
 
 
 @app.get("/api/resume-data")

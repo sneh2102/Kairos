@@ -10,7 +10,6 @@ export default function Applied() {
   const [selected, setSelected] = useState<AppliedRow | null>(null);
   const [tab, setTab] = useState<"resume" | "cover" | "details">("resume");
   const [q, setQ] = useState("");
-  const [driveMsg, setDriveMsg] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const filteredRows = rows.filter((row) => {
@@ -39,16 +38,6 @@ export default function Applied() {
     await api.unapply(id);
     if (selected?.id === id) setSelected(null);
     load();
-  }
-
-  async function uploadToDrive(id: number) {
-    setDriveMsg(null);
-    try {
-      await api.uploadAppliedToDrive(id);
-      setDriveMsg("Uploaded to Google Drive.");
-    } catch (e) {
-      setDriveMsg(String(e));
-    }
   }
 
   return (
@@ -134,15 +123,11 @@ export default function Applied() {
                   <button className="text-xs text-accent hover:underline" onClick={() => navigate(`/applied/${selected.id}/editor`)}>
                     Edit LaTeX
                   </button>
-                  <button className="text-xs text-accent hover:underline" onClick={() => uploadToDrive(selected.id)}>
-                    Upload to Drive
-                  </button>
                   <button className="text-xs text-maybe hover:underline" onClick={() => unapply(selected.id)}>
                     Unapply
                   </button>
                 </div>
               </div>
-              {driveMsg && <div className="text-xs text-yes px-3 pt-2">{driveMsg}</div>}
               <div className="flex-1 min-h-0 p-2">
                 {tab === "details" ? (
                   <div className="p-3 text-sm text-fg-soft space-y-2 overflow-y-auto h-full">
