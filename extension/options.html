@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Job Autofill settings</title>
+<style>
+  body { max-width: 760px; margin: 24px auto; padding: 0 16px; font: 14px/1.5 system-ui, sans-serif; color: #1f2937; }
+  h2 { margin: 28px 0 8px; font-size: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #4b5563; }
+  input, textarea, select { font: inherit; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; color: #111; }
+  textarea { min-height: 90px; resize: vertical; }
+  .wide { grid-column: 1 / -1; }
+  [hidden] { display: none !important; }
+  button { margin-top: 20px; padding: 10px 22px; border: 0; border-radius: 6px; background: #6d28d9; color: #fff; font-weight: 600; cursor: pointer; }
+  #status { margin-left: 12px; color: #059669; }
+  small { color: #6b7280; }
+</style>
+
+<h1>AI Job Autofill</h1>
+<small>Everything is stored only in this browser. Fields are sent to the Anthropic API when you click Fill.</small>
+
+<h2>AI provider</h2>
+<div class="grid">
+  <label>Use <select id="provider">
+    <option value="kairos">Kairos (uses the app's model &amp; keys)</option>
+    <option value="claude">Claude (Anthropic)</option>
+    <option value="gemini">Gemini (Google)</option>
+    <option value="ollama">Ollama (local, free)</option>
+  </select></label>
+</div>
+<div class="grid" data-for="kairos">
+  <label>Kairos URL <input id="kairosUrl" placeholder="http://127.0.0.1:8756"></label>
+  <label>Kairos token (only if remote) <input id="kairosToken" type="password" autocomplete="off"></label>
+</div>
+<div class="grid" data-for="claude">
+  <label>Claude API key <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off"></label>
+  <label>Claude model <input id="model" placeholder="claude-opus-5-5"></label>
+</div>
+<div class="grid" data-for="gemini">
+  <label>Gemini API key <input id="geminiKey" type="password" placeholder="AIza..." autocomplete="off"></label>
+  <label>Gemini model <input id="geminiModel" placeholder="gemini-3.8-flash"></label>
+</div>
+<div class="grid" data-for="ollama">
+  <label>Ollama URL <input id="ollamaUrl" placeholder="http://localhost:11434"></label>
+  <label>Ollama model <input id="ollamaModel" placeholder="llama3.1:8b"></label>
+  <label class="wide">Ollama Cloud API key(s): only for https://ollama.com. Separate several keys with commas; when one hits a rate limit, the next is used. <input id="ollamaKey" type="password" autocomplete="off"></label>
+  <small class="wide">Local Ollama blocks extensions unless you allow them. Set the environment variable <code>OLLAMA_ORIGINS=chrome-extension://*</code>, then restart Ollama. Small local models write weaker answers; a model of 8B parameters or more works best.</small>
+</div>
+
+<h2>Basics</h2>
+<div class="grid">
+  <label>First name <input data-k="firstName"></label>
+  <label>Last name <input data-k="lastName"></label>
+  <label>Preferred name <input data-k="preferredName"></label>
+  <label>Pronouns <input data-k="pronouns"></label>
+  <label>Email <input data-k="email" type="email"></label>
+  <label>Phone <input data-k="phone" placeholder="+1 555 123 4567"></label>
+  <label class="wide">Street address <input data-k="streetAddress"></label>
+  <label>City <input data-k="city"></label>
+  <label>State / province <input data-k="state"></label>
+  <label>Postal code <input data-k="postalCode"></label>
+  <label>Country <input data-k="country"></label>
+  <label>LinkedIn <input data-k="linkedin"></label>
+  <label>GitHub <input data-k="github"></label>
+  <label>Portfolio / website <input data-k="website"></label>
+</div>
+
+<h2>Work</h2>
+<div class="grid">
+  <label>Current title <input data-k="currentTitle"></label>
+  <label>Current company <input data-k="currentCompany"></label>
+  <label>Years of experience <input data-k="yearsOfExperience"></label>
+  <label>Highest degree <input data-k="highestDegree" placeholder="B.S. Computer Science, 2022"></label>
+  <label class="wide">Skills <textarea data-k="skills" placeholder="Python, React, AWS, SQL..."></textarea></label>
+</div>
+
+<h2>Screening answers</h2>
+<div class="grid">
+  <label>Authorized to work in <input data-k="authorizedToWorkIn" placeholder="United States"></label>
+  <label>Work authorization status <input data-k="workAuthorizationStatus" placeholder="US citizen / Green card / F-1 OPT..."></label>
+  <label>Needs visa sponsorship now or later? <input data-k="requiresVisaSponsorship" placeholder="No"></label>
+  <label>Willing to relocate? <input data-k="willingToRelocate" placeholder="Yes"></label>
+  <label>Work preference <input data-k="workPreference" placeholder="Remote, hybrid or onsite"></label>
+  <label>Expected salary <input data-k="expectedSalary" placeholder="$120,000 – $140,000"></label>
+  <label>Notice period / earliest start <input data-k="earliestStartDate" placeholder="2 weeks"></label>
+  <label>18 or older? <input data-k="over18" placeholder="Yes"></label>
+  <label>OK with a background check? <input data-k="backgroundCheckOk" placeholder="Yes"></label>
+  <label>Security clearance <input data-k="securityClearance" placeholder="None"></label>
+  <label>Relatives working at companies you apply to? <input data-k="relativesAtCompany" placeholder="No"></label>
+  <label>Bound by a non-compete or non-solicitation agreement? <input data-k="nonCompeteAgreement" placeholder="No"></label>
+</div>
+
+<h2>Voluntary self-identification <small>(leave blank to decline)</small></h2>
+<div class="grid">
+  <label>Gender <input data-k="gender"></label>
+  <label>Race / ethnicity <input data-k="raceEthnicity"></label>
+  <label>Hispanic or Latino? <input data-k="hispanicOrLatino"></label>
+  <label>Veteran status <input data-k="veteranStatus"></label>
+  <label>Disability status <input data-k="disabilityStatus"></label>
+</div>
+
+<h2>Resume, experience &amp; projects</h2>
+<div class="grid">
+  <label class="wide">Resume file (PDF or DOCX, up to 5 MB). It's attached to resume upload fields. When you upload a PDF, its text is read into the box below. Current: <b id="resumeName">none</b>
+    <input id="resume" type="file" accept=".pdf,.doc,.docx"></label>
+  <label class="wide">Resume text: every job, project and school with dates. The AI fills experience and education fields and writes answers from this. Check it after uploading.
+    <textarea id="resumeText" data-k="resumeText" style="min-height:300px"></textarea></label>
+  <label class="wide">More projects and experience: anything not on your resume, such as side projects, what you built and the results, links, tech stack
+    <textarea data-k="projects" style="min-height:160px"></textarea></label>
+  <label class="wide">Anything else: stories, motivations, saved answers to common questions
+    <textarea data-k="additionalInfo" style="min-height:140px"></textarea></label>
+</div>
+
+<button id="save">Save</button><span id="status" role="status"></span>
+<script src="options.js"></script>

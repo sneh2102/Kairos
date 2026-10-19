@@ -5,7 +5,7 @@ value via config.get_prompt(key, default) — this module just re-exports that
 same metadata so server.py can serve/validate/reset any of them generically
 without hardcoding per-key logic there.
 """
-from agents import ats_checker, experience_writer, latex_fixer, project_writer, screener, skills_writer
+from agents import ats_checker, experience_writer, interviewer, latex_fixer, project_writer, screener, skills_writer
 from agents._writer_common import SYSTEM_SURGICAL
 from config import CONFIG
 from tools.cover_letter import SYSTEM_COVER_LETTER
@@ -76,6 +76,18 @@ REGISTRY: dict[str, dict] = {
         # rendered with str.replace(), so its literal { } (in the OUTPUT JSON
         # block) are safe — never passed through str.format()
         "format_safe": True,
+    },
+    **{
+        meta["prompt_key"]: {
+            "label": f"Mock Interviewer — {meta['label']}",
+            "description": f"System prompt for the {meta['label'].lower()} voice interview (Interview prep page). "
+                           "Must return JSON {\"reply\", \"action\"}; write literal braces as {{ }}.",
+            "default": meta["default"],
+            "placeholders": ["interviewer_name", "title", "company", "persona", "candidate_name",
+                             "job_description", "resume", "projects", "topics", "difficulty"],
+            "format_safe": True,  # rendered with str.replace(), never str.format()
+        }
+        for meta in interviewer.KINDS.values()
     },
 }
 

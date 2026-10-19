@@ -3,6 +3,7 @@
 db_manager.py with the openpyxl/Excel-mirroring dropped: SQLite is the only
 source of truth here.
 """
+import json
 import sqlite3
 from pathlib import Path
 
@@ -374,6 +375,160 @@ class AppliedDB:
             return con.execute(
                 "SELECT COUNT(*) FROM applied_jobs WHERE coalesce(tex_content,'') != ''"
             ).fetchone()[0]
+
+
+class InterviewDB:
+    """Mock-interview sessions and their turns. A session snapshots the job it
+    was started from (company/title/JD) into `context`, since jobs move between
+    jobs.db and applied.db and may be deleted later."""
+
+    def __init__(self, path: str | None = None):
+        self.path = path or str(config.DATA_DIR / "interview.db")
+        self._init_schema()
+
+    def _connect(self):
+        con = sqlite3.connect(self.path)
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA foreign_keys = ON")
+        return con
+
+    def _init_schema(self):
+        with self._connect() as con:
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind        TEXT NOT NULL,
+                    title       TEXT DEFAULT '',
+                    config      TEXT DEFAULT '{}',
+                    context     TEXT DEFAULT '{}',
+                    status      TEXT DEFAULT 'active',
+                    score       INTEGER,
+                    report      TEXT DEFAULT '',
+                    started_at  TEXT DEFAULT (datetime('now')),
+                    ended_at    TEXT
+                )
+            """)
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS turns (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id  INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                    speaker     TEXT NOT NULL,
+                    text        TEXT NOT NULL,
+                    words       TEXT DEFAULT '[]',
+                    duration    REAL DEFAULT 0,
+                    audio_path  TEXT DEFAULT '',
+                    eval        TEXT DEFAULT '',
+                    created_at  TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            # interviewer turns: which planned question they belong to, follow-up or not
+            _migrate(con, "turns", {"meta": "TEXT DEFAULT ''"})
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS prep_guides (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title       TEXT DEFAULT '',
+                    company     TEXT DEFAULT '',
+                    job_source  TEXT DEFAULT '',
+                    job_id      INTEGER,
+                    content     TEXT DEFAULT '{}',
+                    created_at  TEXT DEFAULT (datetime('now'))
+                )
+            """)
+
+    def create_session(self, kind: str, title: str, cfg: dict, context: dict) -> int:
+        with self._connect() as con:
+            return con.execute("INSERT INTO sessions (kind, title, config, context) VALUES (?, ?, ?, ?)",
+                               (kind, title, json.dumps(cfg), json.dumps(context))).lastrowid
+
+    def get_session(self, sid: int) -> dict | None:
+        with self._connect() as con:
+            row = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+            if not row:
+                return None
+            s = dict(row)
+            s["config"], s["context"] = json.loads(s["config"] or "{}"), json.loads(s["context"] or "{}")
+            s["turns"] = [self._turn(r) for r in con.execute(
+                "SELECT * FROM turns WHERE session_id=? ORDER BY id", (sid,))]
+            return s
+
+    def list_sessions(self) -> list[dict]:
+        with self._connect() as con:
+            rows = con.execute("""
+                SELECT s.id, s.kind, s.title, s.status, s.score, s.started_at, s.ended_at,
+                       (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.speaker = 'candidate') AS answers,
+                       (SELECT ROUND(AVG(json_extract(t.eval, '$.score')), 1) FROM turns t
+                        WHERE t.session_id = s.id AND t.eval LIKE '{%') AS avg_score
+                FROM sessions s ORDER BY s.id DESC
+            """).fetchall()
+            return [dict(r) for r in rows]
+
+    def add_turn(self, sid: int, speaker: str, text: str, words: list | None = None,
+                 duration: float = 0, meta: dict | None = None) -> dict:
+        with self._connect() as con:
+            tid = con.execute(
+                "INSERT INTO turns (session_id, speaker, text, words, duration, meta) VALUES (?, ?, ?, ?, ?, ?)",
+                (sid, speaker, text, json.dumps(words or []), duration, json.dumps(meta or {}))).lastrowid
+            return self._turn(con.execute("SELECT * FROM turns WHERE id=?", (tid,)).fetchone())
+
+    def get_turn(self, tid: int) -> dict | None:
+        with self._connect() as con:
+            row = con.execute("SELECT * FROM turns WHERE id=?", (tid,)).fetchone()
+            return self._turn(row) if row else None
+
+    def set_eval(self, tid: int, evaluation: dict):
+        with self._connect() as con:
+            con.execute("UPDATE turns SET eval=? WHERE id=?", (json.dumps(evaluation), tid))
+
+    def update_context(self, sid: int, context: dict):
+        with self._connect() as con:
+            con.execute("UPDATE sessions SET context=? WHERE id=?", (json.dumps(context), sid))
+
+    def delete_turns_from(self, sid: int, tid: int):
+        """Drops turn `tid` and everything after it — used when an answer is edited and resent."""
+        with self._connect() as con:
+            con.execute("DELETE FROM turns WHERE session_id=? AND id>=?", (sid, tid))
+
+    def end_session(self, sid: int):
+        with self._connect() as con:
+            con.execute("UPDATE sessions SET status='ended', ended_at=datetime('now') "
+                        "WHERE id=? AND status='active'", (sid,))
+
+    def delete_session(self, sid: int):
+        with self._connect() as con:
+            con.execute("DELETE FROM sessions WHERE id=?", (sid,))
+
+    def save_guide(self, title: str, company: str, job_source: str, job_id: int | None, content: dict) -> int:
+        with self._connect() as con:
+            return con.execute(
+                "INSERT INTO prep_guides (title, company, job_source, job_id, content) VALUES (?, ?, ?, ?, ?)",
+                (title, company, job_source, job_id, json.dumps(content))).lastrowid
+
+    def get_guide(self, gid: int) -> dict | None:
+        with self._connect() as con:
+            row = con.execute("SELECT * FROM prep_guides WHERE id=?", (gid,)).fetchone()
+            if not row:
+                return None
+            g = dict(row)
+            g["content"] = json.loads(g["content"] or "{}")
+            return g
+
+    def list_guides(self) -> list[dict]:
+        with self._connect() as con:
+            return [dict(r) for r in con.execute(
+                "SELECT id, title, company, job_source, job_id, created_at FROM prep_guides ORDER BY id DESC")]
+
+    def delete_guide(self, gid: int):
+        with self._connect() as con:
+            con.execute("DELETE FROM prep_guides WHERE id=?", (gid,))
+
+    @staticmethod
+    def _turn(row) -> dict:
+        t = dict(row)
+        t["words"] = json.loads(t["words"] or "[]")
+        t["meta"] = json.loads(t["meta"] or "{}")
+        t["eval"] = json.loads(t["eval"]) if t["eval"] else None
+        del t["audio_path"]   # ponytail: unused until answer recordings are kept (phase 5)
+        return t
 
 
 def ensure_output_dirs(base: str):

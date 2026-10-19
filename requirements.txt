@@ -17,3 +17,11 @@ regex>=2024.0.0
 tls-client>=1.0.1
 playwright>=1.59.0
 urllib3>=2.0.0
+
+# interview prep: speech-to-text (Whisper) and text-to-speech (Kokoro / Edge).
+# av is pinned below 19: faster-whisper 1.2 passes an open() argument av 19 removed.
+faster-whisper>=1.2.0
+av>=16,<19
+kokoro-onnx>=0.4.7
+soundfile>=0.13.0
+edge-tts>=7.0.0

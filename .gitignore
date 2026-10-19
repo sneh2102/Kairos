@@ -28,3 +28,13 @@ desktop/build-resources/*
 *.zip
 .claude/
 .vercel/
+
+# interview prep: downloaded speech models + cached interviewer audio
+models/
+interviews/
+
+# local secrets / session / runtime state
+.jobright_browser_profile/
+.jobright_state.json
+build_queue.json
+extension/profile.local.json

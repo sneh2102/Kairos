@@ -161,6 +161,34 @@ class GeminiClient:
         return self._generate(system, user, max(num_predict, 8192), temperature, True)
 
 
+_search_key_idx = 0
+
+
+def web_search(query: str, max_results: int = 5) -> list[dict]:
+    """Ollama's hosted web search ([{title, url, content}]), rotating through
+    the Ollama keys on auth/quota errors. Returns [] if every key fails."""
+    global _search_key_idx
+    from config import get_ollama_keys
+    keys = get_ollama_keys()
+    for _ in range(len(keys)):
+        key = keys[_search_key_idx % len(keys)]
+        try:
+            resp = requests.post(f"{OLLAMA_HOST}/api/web_search", headers={"Authorization": f"Bearer {key}"},
+                                 json={"query": query, "max_results": max_results}, timeout=30)
+        except requests.RequestException as e:
+            logging.warning("web search failed: %s", e)
+            return []
+        if resp.status_code in (401, 403, 429):
+            _search_key_idx += 1
+            continue
+        if resp.status_code >= 400:
+            logging.warning("web search HTTP %s: %s", resp.status_code, resp.text[:200])
+            return []
+        return resp.json().get("results") or []
+    logging.warning("web search: every Ollama key is unauthorized or out of quota")
+    return []
+
+
 def make_client(ollama_model: str, task: str = ""):
     """The LLM client for the provider chosen in Settings > Model. `ollama_model`
     is the per-stage Ollama model; Gemini uses the single model.gemini_model.
