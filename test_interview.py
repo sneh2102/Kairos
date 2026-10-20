@@ -175,6 +175,23 @@ def test_prep_guide_cites_sources_and_drops_dead_links():
     assert g["company_info"] == {"web": False, "sources": []} and g["qa"] == []
 
 
+def test_more_qa_skips_repeats_and_forces_category():
+    from agents import prep_guide
+    seen = {}
+
+    class Fake:
+        def complete_json(self, system, user, **kw):
+            seen["system"], seen["user"] = system, user
+            return ('{"qa": [{"category": "Technical", "question": "Old one?", "answer": "A."}, '
+                    '{"category": "Behavioral", "question": "New one?", "answer": "B."}, '
+                    '{"category": "Technical", "question": "new ONE?", "answer": "C."}, "junk"]}')
+    prep_guide.make_client = lambda *a, **k: Fake()
+    out = prep_guide.more_qa("Acme", "SWE", "jd", {"web": False}, "Technical", ["Old one?"], count=3)
+    assert [q["question"] for q in out] == ["New one?"]       # repeat of existing + in-batch dup dropped
+    assert out[0]["category"] == "Technical"                   # drifted category corrected
+    assert "- Old one?" in seen["user"] and "Exactly 3 items" in seen["system"]
+
+
 def test_prompt_render():
     for kind in interviewer.KINDS:
         sp = interviewer.system_prompt({"kind": kind, "config": {"persona": "tough"},

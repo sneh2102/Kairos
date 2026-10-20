@@ -263,6 +263,8 @@ export const api = {
   listPrepGuides: () => request<PrepGuideSummary[]>("/api/prep"),
   getPrepGuide: (id: number) => request<PrepGuide>(`/api/prep/${id}`),
   deletePrepGuide: (id: number) => request(`/api/prep/${id}`, { method: "DELETE" }),
+  morePrepQa: (id: number, category: string) =>
+    request<PrepGuide>(`/api/prep/${id}/qa`, { method: "POST", body: JSON.stringify({ category }) }),
 };
 
 async function fetchAudio(path: string, options?: RequestInit): Promise<Blob | null> {

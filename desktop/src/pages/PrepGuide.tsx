@@ -125,7 +125,7 @@ export default function PrepGuide() {
 
       {tab === "company" && <CompanyTab info={c.company_info} company={guide.company} />}
       {tab === "fit" && <FitTab c={c} />}
-      {tab === "qa" && <QaTab guideId={gid} qa={c.qa ?? []} />}
+      {tab === "qa" && <QaTab guideId={gid} qa={c.qa ?? []} onUpdate={setGuide} />}
       {tab === "ask" && (
         <Card title="Questions to ask your interviewer" hint="Pick two or three. Asking specific questions signals real interest.">
           <ol className="flex flex-col gap-2">
@@ -318,9 +318,35 @@ function practicedKey(id: number) {
   return `prep.practiced.${id}`;
 }
 
-function QaTab({ guideId, qa }: { guideId: number; qa: NonNullable<Guide["content"]["qa"]> }) {
+const MORE_CATEGORIES = ["Technical", "Behavioral", "Resume", "Role", "Company"];
+
+function QaTab({
+  guideId,
+  qa,
+  onUpdate,
+}: {
+  guideId: number;
+  qa: NonNullable<Guide["content"]["qa"]>;
+  onUpdate: (g: Guide) => void;
+}) {
   const [cat, setCat] = useState("All");
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [moreError, setMoreError] = useState<string | null>(null);
+
+  // new items are appended, so existing indices (and their "practiced" marks) stay valid
+  async function generateMore(category: string) {
+    setGenerating(category);
+    setMoreError(null);
+    try {
+      onUpdate(await api.morePrepQa(guideId, category));
+      setCat(category);
+    } catch (e) {
+      setMoreError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setGenerating(null);
+    }
+  }
   // which questions you've practiced — a per-viewer convenience, so browser storage is fine
   const [practiced, setPracticed] = useState<Set<number>>(() => {
     try {
@@ -373,6 +399,21 @@ function QaTab({ guideId, qa }: { guideId: number; qa: NonNullable<Guide["conten
         >
           {allOpen ? "Hide all answers" : "Show all answers"}
         </button>
+      </div>
+      <div className="card p-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted mr-1">Generate 5 more:</span>
+        {MORE_CATEGORIES.map((c) => (
+          <button key={c} className="btn-secondary !py-1 !px-3 text-xs" onClick={() => generateMore(c)} disabled={!!generating}>
+            {generating === c ? (
+              <>
+                <span className="spinner" /> Writing…
+              </>
+            ) : (
+              `+ ${c}`
+            )}
+          </button>
+        ))}
+        {moreError && <span className="text-xs text-no w-full">{moreError}</span>}
       </div>
       <p className="text-xs text-muted">Try answering out loud first, then reveal the sample answer to compare.</p>
 

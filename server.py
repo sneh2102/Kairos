@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 import config
 from agents import (custom_section_writer, experience_writer, github_importer, interviewer, project_writer,
                     prep_guide, prompt_registry, screener, skills_writer)
+from agents.ats_rules import latex_to_text
 from config import CONFIG
 from db.manager import AppliedDB, InterviewDB, JobsDB, mark_applied, unmark_applied
 from graph.apply_graph import build_apply_graph, load_buildable_jobs
@@ -1064,8 +1065,11 @@ def _job_context(source: str, job_id) -> dict:
     row = (applied_db if source == "applied" else jobs_db).get_by_id(int(job_id))
     if not row:
         raise HTTPException(404, "linked job not found")
+    # the resume actually built for this job; empty = not built, agents fall back to resume.txt
+    tex = row.get("tex_content") or row.get("latex_content") or ""
     return {"company": row.get("company", ""), "title": row.get("title", ""),
-            "description": row.get("description", ""), "source": source, "job_id": int(job_id)}
+            "description": row.get("description", ""), "source": source, "job_id": int(job_id),
+            "resume": latex_to_text(tex.split(r"\begin{document}")[-1]) if tex else ""}
 
 
 def _interviewer_reply(sid: int) -> dict:
@@ -1196,7 +1200,7 @@ def prep_create(payload: dict = Body(...)):
     if not title and not company:
         raise HTTPException(400, "Pick a job, or enter a role or company")
     try:
-        content = prep_guide.generate(company, title, ctx.get("description", ""))
+        content = prep_guide.generate(company, title, ctx.get("description", ""), ctx.get("resume", ""))
     except Exception as e:
         logging.exception("prep guide failed")
         raise HTTPException(502, f"Couldn't build the prep guide: {e}")
@@ -1215,6 +1219,33 @@ def prep_get(gid: int):
     if not guide:
         raise HTTPException(404, "guide not found")
     return guide
+
+
+@app.post("/api/prep/{gid}/qa")
+def prep_more_qa(gid: int, payload: dict = Body(...)):
+    """Body: {category}. Appends 5 new practice Q&As in that category (~15-30s)."""
+    category = payload.get("category", "")
+    if category not in prep_guide.QA_CATEGORIES:
+        raise HTTPException(400, f"category must be one of {', '.join(prep_guide.QA_CATEGORIES)}")
+    guide = interview_db.get_guide(gid)
+    if not guide:
+        raise HTTPException(404, "guide not found")
+    try:
+        ctx = _job_context(guide["job_source"], guide["job_id"])
+    except HTTPException:  # linked job was deleted since; build from the title alone
+        ctx = {}
+    description = ctx.get("description", "")
+    content = guide["content"]
+    qa = content.get("qa") or []
+    try:
+        new = prep_guide.more_qa(guide["company"], guide["title"], description, content.get("company_info") or {},
+                                 category, [q.get("question", "") for q in qa], resume=ctx.get("resume", ""))
+    except Exception as e:
+        logging.exception("more prep Q&A failed")
+        raise HTTPException(502, f"Couldn't generate more questions: {e}")
+    content["qa"] = qa + new
+    interview_db.update_guide_content(gid, content)
+    return interview_db.get_guide(gid)
 
 
 @app.delete("/api/prep/{gid}")

@@ -180,7 +180,8 @@ def _values(session: dict) -> dict:
         "persona": PERSONAS.get(cfg.get("persona", "neutral"), PERSONAS["neutral"]),
         "candidate_name": CONFIG.get("profile", {}).get("full_name") or "the candidate",
         "job_description": (ctx.get("description") or "(none given — assume a typical description for the role)")[:6000],
-        "resume": (_load("resume_path", "resume.txt") or "(no resume on file)")[:8000],
+        # the resume built for the linked job, else the base resume.txt
+        "resume": (ctx.get("resume") or _load("resume_path", "resume.txt") or "(no resume on file)")[:8000],
         "projects": (_load("projects_path", "projects.txt") or "(none)")[:6000],
         "topics": ", ".join(cfg.get("topics") or []) or "the role's core stack",
         "difficulty": DIFFICULTY.get(cfg.get("difficulty", "mid"), DIFFICULTY["mid"]),
@@ -457,8 +458,11 @@ def evaluate(session: dict, turn_id: int) -> dict | None:
               ' "improvements": ["<max 3 short, specific, actionable points>"],\n'
               ' "better_answer": "<2-4 sentences showing how a strong candidate would have answered. Build on '
               'facts from their resume; never invent specifics that are not there — use a placeholder like '
-              '[your metric] instead>"}')
-    user = f"EXCHANGE\n{exchange}\n\nCANDIDATE RESUME (for context)\n{v['resume'][:4000]}"
+              '[your metric] instead. Aim it at the job description\'s responsibilities: even a generic question '
+              '(a challenging problem, a conflict) gets the resume story closest to this role\'s work, told in '
+              'the JD\'s terms>"}')
+    user = (f"EXCHANGE\n{exchange}\n\nJOB DESCRIPTION (for context)\n{v['job_description'][:3000]}\n\n"
+            f"CANDIDATE RESUME (for context)\n{v['resume'][:4000]}")
     client = _client()
     for attempt in range(2):   # the model occasionally returns malformed JSON; one retry fixes it
         raw = client.complete_json(system, user, num_predict=2048, temperature=0.2)

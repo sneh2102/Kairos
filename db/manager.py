@@ -512,6 +512,10 @@ class InterviewDB:
             g["content"] = json.loads(g["content"] or "{}")
             return g
 
+    def update_guide_content(self, gid: int, content: dict):
+        with self._connect() as con:
+            con.execute("UPDATE prep_guides SET content=? WHERE id=?", (json.dumps(content), gid))
+
     def list_guides(self) -> list[dict]:
         with self._connect() as con:
             return [dict(r) for r in con.execute(

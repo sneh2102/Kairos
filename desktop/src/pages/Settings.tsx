@@ -107,6 +107,7 @@ const TASKS: [string, string][] = [
   ["cover_letter", "Cover letter"],
   ["ats", "ATS checker, optimizer & LaTeX fixer"],
   ["interview", "Mock interviewer"],
+  ["prep_guide", "Prep guide"],
 ];
 
 function ModelTab({ config, setConfig }: { config: Config; setConfig: Setter }) {
