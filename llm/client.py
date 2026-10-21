@@ -192,7 +192,7 @@ def web_search(query: str, max_results: int = 5) -> list[dict]:
 def make_client(ollama_model: str, task: str = ""):
     """The LLM client for the provider chosen in Settings > Model. `ollama_model`
     is the per-stage Ollama model; Gemini uses the single model.gemini_model.
-    `task` (screener, skills, experience, projects, summary, cover_letter, ats) picks
+    `task` (screener, skills, experience, projects, summary, cover_letter, ats, interview, prep_guide) picks
     the provider from model.task_providers; missing/"default" falls back to model.provider."""
     from config import CONFIG, collect_ollama_keys
     m = CONFIG["model"]
@@ -284,6 +284,7 @@ class RotatingOllamaClient:
         """Direct HTTP call with format=json — used by the ATS checker, which
         needs Ollama's structured-output mode rather than free-text completion."""
         last_err: Exception | None = None
+        retries *= len(self.api_keys)  # same budget as complete(): every key gets its turns
         for attempt in range(retries):
             key = self.api_keys[self.current_index]
             try:
@@ -300,6 +301,7 @@ class RotatingOllamaClient:
                     timeout=120,
                 )
                 if resp.status_code in (401, 403, 429):
+                    last_err = RuntimeError(f"Ollama key #{self.current_index + 1}: HTTP {resp.status_code} {resp.text[:200]}")
                     self._rotate()
                     continue
                 resp.raise_for_status()

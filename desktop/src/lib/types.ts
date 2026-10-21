@@ -186,7 +186,6 @@ export interface Config {
     project_count?: number;
   };
   section_order: string[];
-  google: { client_id: string; client_secret: string };
   profile: {
     full_name: string;
     phone: string;

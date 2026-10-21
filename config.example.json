@@ -21,13 +21,6 @@
   "github": {
     "token": ""
   },
-  "google": {
-    "client_id": "",
-    "client_secret": "",
-    "refresh_token": "",
-    "connected_email": "",
-    "folder_id": ""
-  },
   "pipeline": {
     "max_ats_iterations": 5,
     "ats_pass_threshold": 85,

@@ -213,20 +213,12 @@ export const api = {
   putScheduler: (payload: { enabled: boolean; time: string }) =>
     request("/api/scheduler", { method: "PUT", body: JSON.stringify(payload) }),
 
-  googleStatus: () => request<{ configured: boolean; connected: boolean; email: string }>("/api/google/status"),
-  googleConnect: () => request<{ auth_url: string }>("/api/google/connect", { method: "POST" }),
-  googleDisconnect: () => request<{ disconnected: boolean }>("/api/google/disconnect", { method: "POST" }),
-
   greenhouseStatus: () => request<{ connected: boolean }>("/api/greenhouse/status"),
   greenhouseConnect: () => request<{ connected: boolean }>("/api/greenhouse/connect", { method: "POST" }),
   greenhouseDisconnect: () => request<{ disconnected: boolean }>("/api/greenhouse/disconnect", { method: "POST" }),
   jobrightStatus: () => request<{ connected: boolean }>("/api/jobright/status"),
   jobrightConnect: () => request<{ connected: boolean }>("/api/jobright/connect", { method: "POST" }),
   jobrightDisconnect: () => request<{ disconnected: boolean }>("/api/jobright/disconnect", { method: "POST" }),
-  uploadJobToDrive: (id: number) =>
-    request<{ resume_link?: string; cover_link?: string }>(`/api/jobs/${id}/upload-to-drive`, { method: "POST" }),
-  uploadAppliedToDrive: (id: number) =>
-    request<{ resume_link?: string; cover_link?: string }>(`/api/applied/${id}/upload-to-drive`, { method: "POST" }),
 
   // ---- interview prep ----
   speechStatus: () => request<SpeechStatus>("/api/speech/status"),
@@ -271,6 +263,8 @@ export const api = {
   listPrepGuides: () => request<PrepGuideSummary[]>("/api/prep"),
   getPrepGuide: (id: number) => request<PrepGuide>(`/api/prep/${id}`),
   deletePrepGuide: (id: number) => request(`/api/prep/${id}`, { method: "DELETE" }),
+  morePrepQa: (id: number, category: string) =>
+    request<PrepGuide>(`/api/prep/${id}/qa`, { method: "POST", body: JSON.stringify({ category }) }),
 };
 
 async function fetchAudio(path: string, options?: RequestInit): Promise<Blob | null> {
